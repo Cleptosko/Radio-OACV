@@ -5,55 +5,15 @@
   "outputDirectory": ".",
   "cleanUrls": true,
   "trailingSlash": false,
-  "routes": [
+  "rewrites": [
     {
-      "src": "/(server|tools|data|deploy|node_modules)/.*",
-      "status": 404
-    },
-    {
-      "src": "/(package(-lock)?.json|Dockerfile|docker-compose.yml|README.md|Lancer-Radio-OACV.bat)",
-      "status": 404
-    },
-    {
-      "src": "/.[^/]*",
-      "status": 404
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/studio",
-      "dest": "/studio/index.html"
-    },
-    {
-      "src": "/",
-      "dest": "/index.html"
+      "source": "/studio",
+      "destination": "/studio/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        },
-        {
-          "key": "Permissions-Policy",
-          "value": "geolocation=(), camera=()"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "SAMEORIGIN"
-        }
-      ]
-    },
-    {
-      "source": "/(index.html|studio/?)$",
+      "source": "/index.html",
       "headers": [
         {
           "key": "Cache-Control",
@@ -62,7 +22,25 @@
       ]
     },
     {
-      "source": "/(app.js|ui.js|style.css)",
+      "source": "/studio/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/studio/style.css",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=600, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/studio/app.js",
       "headers": [
         {
           "key": "Cache-Control",
@@ -85,6 +63,27 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=604800"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "geolocation=(), camera=()"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
         }
       ]
     }
