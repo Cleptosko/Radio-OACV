@@ -12,19 +12,34 @@
    toucher à celui du propriétaire :
      npm run add-account
 
+   Pour changer un mot de passe :
+     npm run password
+
+   Si le mot de passe a été oublié (la porte de secours quand on ne peut
+   plus se connecter) :
+     node tools/setup.js --only=1
+   qui ne réécrit que l'empreinte ADMIN1_PASSWORD_HASH et laisse tout
+   le reste — y compris le compte du collègue — intact.
+
    Le fichier .env n'est jamais versionné.
    ============================================================ */
 import crypto from 'node:crypto';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { stdout } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { hashPassword } from '../server/hash.js';
-import { line, askHidden, endPrompts } from './prompt.js';
+import { line, askHidden, endPrompts, patchEnvKeys, readEnvValue } from './prompt.js';
 
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ENV_PATH = path.join(ROOT, '.env');
 const FORCE = process.argv.includes('--force');
+
+/* --only=N : ne réécrit que l'empreinte d'un compte, sans demander
+   ni port, ni fuseau, ni l'autre compte. C'est la porte de secours
+   quand on a oublié son mot de passe. */
+const onlyArg = process.argv.find(a => a.startsWith('--only'));
+const ONLY = onlyArg ? parseInt(onlyArg.split('=')[1], 10) : 0;
 
 const args = new Map(process.argv.slice(2).filter(a => a.includes('=')).map(a => [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)]));
 const fromEnv = k => process.env[k] || args.get(k) || '';
@@ -53,11 +68,52 @@ async function askAccount(which, label){
   return { email: mail, password: pass, name: nom };
 }
 
+/* ---------- mode secours : réécrit une seule empreinte ---------- */
+async function onlyOne(){
+  console.log('');
+  console.log('  ==========================================================');
+  console.log('     RADIO OACV — réinitialisation d\'un mot de passe');
+  console.log('  ==========================================================');
+
+  if (![1, 2].includes(ONLY)) throw new Error('--only doit valoir 1 ou 2');
+  if (!existsSync(ENV_PATH)) throw new Error('aucun fichier .env : lancez d\'abord « npm run setup »');
+
+  const text = readFileSync(ENV_PATH, 'utf8');
+  const email = readEnvValue(text, `ADMIN${ONLY}_EMAIL`);
+  if (!email) throw new Error(`ADMIN${ONLY}_EMAIL est vide : ce compte n'existe pas`);
+
+  console.log(`\n  Compte ${ONLY} : ${email}`);
+  console.log('  Seul le mot de passe sera remplacé : ni le port, ni le');
+  console.log('  fuseau, ni le compte de l\u2019autre personne, ni les sessions.');
+  if (!/^(oui|o|yes|y)$/i.test(await line('\n  Continuer ? (oui/non) : '))){
+    console.log('\n  Rien n\'a été modifié.\n');
+    return;
+  }
+
+  let pass = fromEnv(`ADMIN${ONLY}_PASSWORD`);
+  while (!pass || pass.length < 8){
+    pass = await askHidden('    nouveau mot de passe (8 caractères mini) : ');
+    if (pass.length < 8) console.log('    ↳ trop court, recommencez.');
+  }
+  const twice = fromEnv('ADMIN_PASSWORD') ? pass : await askHidden('    le recopier : ');
+  if (twice !== pass) throw new Error('les deux mots de passe ne correspondent pas');
+
+  const hash = await hashPassword(pass);
+  const updated = patchEnvKeys(text, { [`ADMIN${ONLY}_PASSWORD_HASH`]: hash },
+    `Mot de passe de ${email} réinitialisé le ${new Date().toLocaleString('fr-FR')}`);
+  writeFileSync(ENV_PATH, updated, { encoding: 'utf8', mode: 0o600 });
+
+  console.log(`\n  Mot de passe de ${email} réinitialisé.`);
+  console.log('  Redémarrez le serveur, puis connectez-vous.\n');
+}
+
 async function main(){
   console.log('');
   console.log('  ==========================================================');
   console.log('     RADIO OACV — configuration du serveur');
   console.log('  ==========================================================');
+
+  if (ONLY) return onlyOne();
 
   if (existsSync(ENV_PATH) && !FORCE){
     console.log('\n  Un fichier .env existe déjà.');

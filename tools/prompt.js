@@ -1,6 +1,6 @@
 /* ============================================================
    RADIO OACV — saisie au clavier, partagée par les outils
-   (setup.js, add-account.js)
+   (setup.js, add-account.js, change-password.js)
 
    Un seul mécanisme de lecture du clavier pour TOUTES les questions,
    visibles ou masquées. Melanger readline et le mode brut du terminal
@@ -133,10 +133,11 @@ export function ask(question, { hidden = false } = {}){
 export const line = q => ask(q);
 export const askHidden = q => ask(q, { hidden: true });
 
-/* Réécrit uniquement les clés ADMIN2_* d'un .env existant, en gardant
+/* Réécrit uniquement les clés fournies d'un .env existant, en gardant
    tout le reste (secret de session, port, playlists…) intact et en
-   préservant l'ordre et les commentaires du fichier. */
-export function patchEnvKeys(envText, updates){
+   préservant l'ordre et les commentaires du fichier.
+   `comment` sert à étiqueter les clés absentes, ajoutées à la fin. */
+export function patchEnvKeys(envText, updates, comment = 'mis à jour'){
   const lines = envText.replace(/\r\n/g, '\n').split('\n');
   const done = new Set();
   for (let i = 0; i < lines.length; i++){
@@ -148,9 +149,17 @@ export function patchEnvKeys(envText, updates){
   }
   /* clés absentes du fichier : on les ajoute à la fin */
   const missing = Object.keys(updates).filter(k => !done.has(k));
-  while (lines.length && lines[lines.length - 1] === '') lines.pop();
-  lines.push('', '# ---- Compte collaborateur (ajouté par tools/add-account.js) ----');
-  for (const k of missing) lines.push(`${k}=${updates[k]}`);
+  if (missing.length){
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    lines.push('', `# ---- ${comment} ----`);
+    for (const k of missing) lines.push(`${k}=${updates[k]}`);
+  }
   lines.push('');
   return lines.join('\n');
+}
+
+/* Lit la valeur d'une clé dans le texte d'un .env. */
+export function readEnvValue(text, key){
+  const m = String(text).match(new RegExp(`^${key}=(.*)$`, 'm'));
+  return m ? m[1].trim() : '';
 }

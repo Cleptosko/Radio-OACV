@@ -88,6 +88,38 @@ ADMIN2_PERMS=announcements,schedule
 Pour désactiver un compte sans supprimer ses accès : `ADMIN2_ENABLED=0`.
 Modifier `.env` puis redémarrer le serveur suffit.
 
+### Changer un mot de passe
+
+```bash
+npm run password
+```
+
+L'assistant demande quel compte modifier, **vérifie le mot de passe actuel**,
+demande le nouveau deux fois, puis ne réécrit que la ligne
+`ADMINx_PASSWORD_HASH`. Tout le reste est conservé tel quel : l'autre compte,
+le port, le fuseau, les playlists — et le **secret de session, donc vos sessions
+restent ouvertes**. Il faut redémarrer le serveur ensuite.
+
+Les mots de passe faibles (`12345678`, `azerty`, `password`…) sont signalés
+avec une explication. Ils restent acceptables si tu le confirmes.
+
+### Mot de passe oublié
+
+Tu es **bloqué dehors** : l'assistant ci-dessus exige l'ancien mot de passe.
+La porte de secours ne demande que le nouveau :
+
+```bash
+node tools/setup.js --only=1     # ton compte (propriétaire)
+node tools/setup.js --only=2     # celui du collègue
+```
+
+Comme pour `npm run password`, seule l'empreinte du compte concerné est
+réécrite — le colleague, les réglages et les sessions ne bougent pas.
+
+> `npm run setup --force` reste le dernier recours : il **régénère tout** le
+> `.env`, y compris le compte du collègue et le secret de session (donc toutes
+> les sessions sont fermées). À n'utiliser que pour repartir de zéro.
+
 ### Ajouter le compte du collègue plus tard
 
 Le compte du collègue est facultatif : la radio fonctionne parfaitement à une seule
@@ -144,11 +176,9 @@ l'API privée contrôle la session et la permission.
 Les secrets vivent dans `.env` en local et dans les **variables d'environnement** sur un
 serveur. Aucun secret ne doit apparaître dans le code ou dans le site public.
 
-> Rotation d'un mot de passe : `npm run add-account` remplace celui du collègue sans
-> toucher au vôtre ; pour le vôtre, relancez `npm run setup --force` (attention : cela
-> régénère aussi le compte du collègue) ou modifiez `ADMIN1_PASSWORD_HASH` à la main.
-> Dans les deux cas, redémarrez le serveur. Changer `SESSION_SECRET` déconnecte
-> immédiatement toutes les sessions ouvertes.
+> Rotation d'un mot de passe : `npm run password` (§3), qui ne touche qu'un seul
+> compte et laisse les sessions ouvertes. Changer `SESSION_SECRET` (ou lancer
+> `npm run setup --force`) déconnecte en revanche toutes les sessions ouvertes.
 
 ---
 
@@ -172,8 +202,9 @@ radio/
 │  ├─ http.js          # multipart, cookies, fichiers avec Range, en-têtes
 │  └─ admin/           # l'interface /admin (HTML/CSS/JS)
 ├─ tools/
-│  ├─ setup.js        # assistant de configuration initiale (.env)
+│  ├─ setup.js        # assistant de configuration initiale (.env), et porte de secours --only=N
 │  ├─ add-account.js  # ajoute ou remplace le compte du collègue
+│  ├─ change-password.js # changer un mot de passe sans toucher au reste
 │  ├─ export-site.js  # copie le site public vers ../radio-site (dépôt Netlify)
 │  └─ prompt.js       # saisie clavier partagée par les deux outils
 ├─ deploy/            # configuration d'hébergement
@@ -345,6 +376,7 @@ dans le flux : ni le bot ni le site n'ont besoin d'être ouverts pour qu'elles p
 |---|---|
 | `SESSION_SECRET manquant` au démarrage | lancez `npm run setup` (ou transmettez le `.env` sur le VPS, voir deploy/README-vps.md) |
 | `identifiants invalides` | vérifiez `ADMIN*_EMAIL`, ou `npm run add-account` pour le collègue |
+| mot de passe oublié (bloqué dehors) | `node tools/setup.js --only=1` (ou `--only=2`) |
 | l'assistant s'arrête après le mot de passe | c'est corrigé ; sinon fermez la fenêtre et relancez. Le mot de passe ne s'affiche pas (des points le remplacent), c'est normal |
 | l'invite du terminal ne revient pas après une erreur | le terminal est rétabli automatiquement ; sinon fermez l'onglet et rouvrez-le |
 | « trop de tentatives » | attendez quelques minutes (blocage progressif) ou redémarrez le serveur |
