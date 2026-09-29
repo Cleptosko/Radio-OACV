@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio — Radio OACV</title>
+<link rel="icon" type="image/png" href="/assets/logo-oacv.png">
+<link rel="stylesheet" href="/studio/style.css">
+</head>
+<body>
+<header class="top">
+  <img src="/assets/logo-oacv.png" alt="">
+  <div class="tt"><b>Studio Radio OACV</b><i>pilotage de l'antenne en direct</i></div>
+  <button id="logout" class="ghost hidden">Déconnexion</button>
+</header>
+<main>
+  <section id="login-card" class="card narrow">
+    <h1>Connexion</h1>
+    <form id="login-form">
+      <label>Identifiant
+        <input id="lg-email" type="email" autocomplete="username" required>
+      </label>
+      <label>Mot de passe
+        <input id="lg-pass" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="primary" type="submit">Se connecter</button>
+      <p id="lg-err" class="err"></p>
+    </form>
+  </section>
+
+  <section id="dash" class="hidden">
+    <div class="card">
+      <h2>Antenne</h2>
+      <p id="st-inter" class="banner hidden"></p>
+      <p class="muted">Le site public suit ces directives toutes les 3 secondes.</p>
+      <div class="row">
+        <button id="it-now" class="danger">Interrompre maintenant</button>
+        <button id="it-after">Interrompre à la fin du morceau</button>
+        <button id="it-resume" class="primary hidden">Reprendre l'antenne</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Prochain morceau</h2>
+      <p id="st-next" class="muted">Aucun morceau programmé — rotation aléatoire.</p>
+      <button id="nx-clear" class="ghost hidden">Annuler le morceau programmé</button>
+    </div>
+
+    <div class="card">
+      <h2>Bibliothèque musicale</h2>
+      <input id="q" type="search" placeholder="Chercher un titre ou un artiste…">
+      <ul id="results"></ul>
+      <p class="muted" id="lib-info"></p>
+    </div>
+  </section>
+</main>
+<script src="/studio/app.js"></script>
+</body>
+</html>

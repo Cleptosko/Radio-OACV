@@ -14,6 +14,7 @@ data/
 
 # Outils
 node_modules/
+.test-data/
 *.log
 
 # Windows

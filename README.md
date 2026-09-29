@@ -74,6 +74,29 @@ Conséquence : la première écoute peut encore sauter quelques titres pendant
 l'apprentissage, puis l'antenne redevient stable. Vider les données du site
 relance l'apprentissage.
 
+### Piloter l’antenne en direct : le Studio
+
+Demarrage :  npm start   (serveur complet)
+puis ouvre  http://localhost:8123/studio
+
+L’antenne du site public ne diffuse que de la musique, en aleatoire
+continu : plus de publicites, plus de jingle automatique, pas de bouton
+passer. Le studio permet de la piloter en temps reel (les auditeurs
+suivent les directives toutes les 3 secondes) :
+
+- choisir le prochain morceau (recherche dans la banque musicale),
+  joue a la fin du titre en cours ;
+- lancer un titre immediatement ;
+- interrompre l’antenne : le jingle (audio/jingle.mp3) passe puis
+  la rotation se met en pause - immediatement ou a la fin du morceau ;
+- reprendre l’antenne quand tu veux.
+
+La connexion se fait avec les comptes d’administration du .env
+(les memes que pour /admin). La fenetre de connexion du site (clic sur
+le logo) mene aussi au studio quand le serveur tourne.
+
+En mode ecoute seule (npm run site, sans serveur), la radio tourne en
+autonomie : le studio n’existe pas et rien n’est pilotable.
 ### Activer l'administration
 
 ```bash

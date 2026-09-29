@@ -28,11 +28,13 @@ const dataDir = config.dataDir;
 const storeAnnouncements = new JsonStore(path.join(dataDir, 'announcements.json'), { items: [] });
 const storeSchedules = new JsonStore(path.join(dataDir, 'schedules.json'), { items: [] });
 const storeQueue = new JsonStore(path.join(dataDir, 'queue.json'), { items: [] });
+const storeStudio = new JsonStore(path.join(dataDir, 'studio.json'), { playNow: null, playNext: null, interrupt: null });
 const storeLibrary = new JsonStore(path.join(dataDir, 'library.json'), {});
 
 await storeAnnouncements.load();
 await storeSchedules.load();
 await storeQueue.load();
+await storeStudio.load();
 await storeLibrary.load();
 
 const auth = new Auth();
@@ -218,6 +220,116 @@ function check(fn){
   catch (e){ fail(400, e.message); }
 }
 
+/* ============================================================
+   Studio — pilotage de l'antenne en temps réel
+   Le site public interroge /api/studio/directives (public, lecture
+   seule). Les commandes viennent du tableau de bord /studio,
+   protégé par les comptes d'administration.
+   ============================================================ */
+function newId(p){ return p + '_' + Date.now().toString(36) + '_' + crypto.randomBytes(3).toString('hex'); }
+
+function studioDirectives(){
+  const st = storeStudio.data;
+  /* un lancement immédiat n'est valable que 10 minutes : un auditeur
+     qui arrive après ne doit pas rejouer un vieux titre forcé */
+  if (st.playNow && Date.now() - new Date(st.playNow.createdAt).getTime() > 10 * 60 * 1000) st.playNow = null;
+  const d = { playNow: null, playNext: null, interrupt: null };
+  if (st.playNow) d.playNow = { id: st.playNow.id, videoId: st.playNow.videoId, title: st.playNow.title || null };
+  if (st.playNext) d.playNext = { id: st.playNext.id, videoId: st.playNext.videoId, title: st.playNext.title || null };
+  if (st.interrupt) d.interrupt = { id: st.interrupt.id, active: !!st.interrupt.active, when: st.interrupt.when };
+  return d;
+}
+
+function studioState(){
+  return {
+    playNow: storeStudio.data.playNow,
+    playNext: storeStudio.data.playNext,
+    interrupt: storeStudio.data.interrupt,
+    file: queuePublic(),
+  };
+}
+
+route('GET', '/api/studio/directives', (req, res) => sendJson(res, 200, studioDirectives()));
+
+route('GET', '/api/studio/state', (req, res) => {
+  auth.require(req);
+  sendJson(res, 200, studioState());
+});
+
+route('POST', '/api/studio/next', async (req, res) => {
+  const session = auth.require(req);
+  const body = await readJson(req);
+  const vid = String(body.videoId || '').trim();
+  if (vid && !/^[A-Za-z0-9_-]{11}$/.test(vid)) fail(400, 'identifiant YouTube invalide');
+  const item = vid ? {
+    id: newId('pn'),
+    videoId: vid,
+    title: String(body.title || '').slice(0, 200) || null,
+    author: String(body.author || '').slice(0, 200) || null,
+    requestedBy: session.sub,
+    createdAt: new Date().toISOString(),
+  } : null;
+  storeStudio.data.playNext = item;
+  await storeStudio.save();
+  console.log('[studio] prochain morceau par ' + session.sub + ' : ' + (vid || '(annulé)'));
+  broadcast();
+  sendJson(res, 200, studioState());
+});
+
+route('POST', '/api/studio/play-now', async (req, res) => {
+  const session = auth.require(req);
+  const body = await readJson(req);
+  const vid = String(body.videoId || '').trim();
+  if (!/^[A-Za-z0-9_-]{11}$/.test(vid)) fail(400, 'identifiant YouTube invalide');
+  const item = {
+    id: newId('pnow'),
+    videoId: vid,
+    title: String(body.title || '').slice(0, 200) || null,
+    author: String(body.author || '').slice(0, 200) || null,
+    requestedBy: session.sub,
+    createdAt: new Date().toISOString(),
+  };
+  storeStudio.data.playNow = item;
+  await storeStudio.save();
+  console.log('[studio] lancement immédiat par ' + session.sub + ' : ' + vid);
+  broadcast();
+  sendJson(res, 200, studioState());
+});
+
+route('POST', '/api/studio/interrupt', async (req, res) => {
+  const session = auth.require(req);
+  const body = await readJson(req);
+  const when = body.when === 'after' ? 'after' : 'now';
+  const item = { id: newId('it'), active: true, when, requestedBy: session.sub, createdAt: new Date().toISOString() };
+  storeStudio.data.interrupt = item;
+  await storeStudio.save();
+  console.log('[studio] interruption (' + when + ') par ' + session.sub);
+  broadcast();
+  sendJson(res, 200, studioState());
+});
+
+route('POST', '/api/studio/resume', async (req, res) => {
+  const session = auth.require(req);
+  const it = storeStudio.data.interrupt;
+  if (!it) return sendJson(res, 200, studioState());
+  it.active = false;
+  it.resumedBy = session.sub;
+  it.resumedAt = new Date().toISOString();
+  await storeStudio.save();
+  console.log('[studio] reprise par ' + session.sub);
+  broadcast();
+  sendJson(res, 200, studioState());
+});
+
+route('POST', '/api/studio/clear', async (req, res) => {
+  const session = auth.require(req);
+  storeStudio.data.playNow = null;
+  storeStudio.data.playNext = null;
+  await storeStudio.save();
+  console.log('[studio] directives effacées par ' + session.sub);
+  broadcast();
+  sendJson(res, 200, studioState());
+});
 /* ---------- santé ---------- */
 route('GET', '/api/health', (req, res) => sendJson(res, 200, {
   ok: true,
@@ -562,8 +674,8 @@ function safeJoin(base, rel){
   return file;
 }
 
-async function serveAdminAsset(req, res, rel){
-  const file = safeJoin(ADMIN_DIR, rel);
+async function serveAdminAsset(req, res, rel, base){
+  const file = safeJoin(base || ADMIN_DIR, rel);
   if (!existsSync(file)) return sendText(res, 404, 'Page introuvable', 'text/plain; charset=utf-8');
   securityHeaders(res, {
     frameDeny: true,
@@ -597,6 +709,10 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/admin' || pathname.startsWith('/admin/')){
       return await serveAdminAsset(req, res, pathname.replace(/^\/admin\/?/, ''));
     }
+    if (pathname === '/studio' || pathname.startsWith('/studio/')){
+      return await serveAdminAsset(req, res, pathname.slice('/studio'.length), path.join(ADMIN_DIR, 'studio'));
+    }
+
 
     if (pathname.startsWith('/api/')){
       guard(req, res, method, pathname);

@@ -1,15 +1,13 @@
 /* ============================================================
-   RADIO OACV — moteur d'antenne v3
-   Architecture à canaux unifiés : musique (YT), pub YouTube (YT),
-   PubOACV (fichier), jingle (fichier) — mêmes transitions partout.
+   RADIO OACV — moteur d'antenne v4
+   Musique uniquement, rotation aléatoire continue, pilotable en
+direct depuis le studio (/studio) : morceau choisi, interruption (jingle), reprise.
    ============================================================ */
 'use strict';
 
 /* ---------- Config ---------- */
 const PLAYLIST_MUSIC = 'PLuwwO2tW6rWqsDdYv16-YJyDrtDF3tRan';
-const PLAYLIST_ADS   = 'PLTvT8EdA3MszcV7CoKdtCIgiHV_6lrgxg';
-const SRC_JINGLE  = 'audio/jingle.mp3';
-const SRC_PUBOACV = 'audio/PubOACV.mp3';
+const SRC_JINGLE  = 'audio/jingle.mp3';      // réservé aux interruptions du studio
 
 const XF_MUSIC_MUSIC = 5;    // crossfade musique → musique (s)
 const XF_INTO_BREAK  = 2.2;  // extinction de la musique quand une pub/jingle arrive (s)
@@ -20,11 +18,6 @@ const RAMP_IN        = 1.4;  // montée d'un titre sans chevauchement (s)
 const SKIP_FADE      = 0.6;  // fondu du bouton passer (s)
 const TICK_MS        = 200;
 
-const MUSICS_BEFORE_BREAK = [5, 7];  // musiques entre deux coupures pub
-const ADS_PER_BREAK       = [2, 3];  // pubs par coupure
-const PUBOACV_WEIGHT      = 4;       // la pub maison passe un peu plus souvent que les autres
-                                     // (1 = même poids qu'une pub ordinaire)
-const JINGLE_EVERY        = [4, 6];  // jingle toutes les X musiques
 const FAIL_COOLDOWN       = 15 * 60 * 1000;
 const PLAYLIST_MAX_PAGES  = 12;  // une page ≈ 100 titres : couvre de très longues playlists
 const PLAYLIST_MIN_PLAUSIBLE = 40; // en dessous, on soupçonne une source tronquée
@@ -408,12 +401,9 @@ function dedupe(items){
 }
 
 async function loadPools(){
-  const [music, ads] = await Promise.all([
-    fetchPlaylist(PLAYLIST_MUSIC, 'oacv_music_v2', { maxDur: 15*60, minDur: 60 }),
-    fetchPlaylist(PLAYLIST_ADS, 'oacv_ads_v2', { maxDur: 4*60, minDur: 8 }).catch(() => []),
-  ]);
+  const music = await fetchPlaylist(PLAYLIST_MUSIC, 'oacv_music_v2', { maxDur: 15*60, minDur: 60 });
   S.musicPool = dedupe(music);
-  S.adsPool = dedupe(ads);
+  S.adsPool = [];
 }
 
 const metaPending = new Set();
@@ -493,91 +483,24 @@ function drawMusic(){
   return liste[ri(0, liste.length - 1)];
 }
 
-/* Pubs : sac unique. PubOACV y figure plusieurs fois (PUBOACV_WEIGHT),
-   elle tombe donc un peu plus souvent que chaque autre pub. */
-const adBag = { bag: [], lastOacv: false };
-
-function buildAdBag(){
-  const bag = S.adsPool.map(v => ({ type: 'yt', video: v }));
-  const poids = Math.max(1, Math.round(PUBOACV_WEIGHT) || 1);
-  for (let i = 0; i < poids; i++) bag.push({ type: 'oacv' });
-  shuffleProgram(bag);
-  return bag;
-}
-
-function drawAd(){
-  if (!adBag.bag.length) adBag.bag = buildAdBag();
-
-  for (let guard = 0; guard < 10 && adBag.bag.length; guard++){
-    const a = adBag.bag.pop();
-    if (a.type === 'oacv'){
-      /* la pub maison ne doit jamais s'enchaîner avec elle-même :
-         on la décale plus loin dans le sac */
-      if (adBag.lastOacv && adBag.bag.length > 1){ adBag.bag.unshift(a); continue; }
-      adBag.lastOacv = true;
-      return a;
-    }
-    if (!isFailing(a.video.id)){ adBag.lastOacv = false; return a; }
-  }
-
-  if (!adBag.bag.length) adBag.bag = buildAdBag();
-  const dernier = adBag.bag.pop();
-  adBag.lastOacv = !!(dernier && dernier.type === 'oacv');
-  return dernier;
-}
-
-function makeAdSeg(){
-  const a = drawAd();
-  if (a.type === 'oacv'){
-    return { kind: 'ad', ad: { type: 'oacv', src: SRC_PUBOACV, title: 'Pub OACV' } };
-  }
-  return { kind: 'ad', ad: { type: 'yt', video: a.video } };
-}
-
-/* ---------- Planificateur d'antenne ---------- */
+/* ---------- Planificateur d'antenne ----------
+   File simple : uniquement de la musique, tiree au hasard (sac
+   melange conserve). Le studio peut placer un titre en tete de
+   file ou interrompre l'antenne (jingle + pause). */
 const planner = {
   q: [],
-  sinceBreak: 0, sinceJingle: 0,
-  needBreak: 0, needJingle: 0,
 
   init(){
-    /* Les mêmes tirages que les autres auditeurs, et on se replace sur
-       la position de la tranche en cours : la coupure tombe donc au
-       même endroit pour tout le monde. */
-    const avance = elapsedTracks();
-    this.sinceBreak = avance % (MUSICS_BEFORE_BREAK[1] + 1);
-    this.sinceJingle = avance % (JINGLE_EVERY[1] + 1);
-    this.needBreak = riProgram(...MUSICS_BEFORE_BREAK);
-    this.needJingle = riProgram(...JINGLE_EVERY);
-    this.q = [{ kind: 'jingle', src: SRC_JINGLE }];
+    this.q = [];
     this.refill();
   },
-
   refill(){
     while (this.q.length < 6) this.q.push(...this._make());
   },
 
   _make(){
-    const breakDue  = this.sinceBreak  >= this.needBreak;
-    const jingleDue = this.sinceJingle >= this.needJingle;
-
-    if (breakDue){
-      const group = [];
-      if (jingleDue) group.push({ kind: 'jingle', src: SRC_JINGLE });
-      const n = riProgram(...ADS_PER_BREAK);
-      for (let i = 0; i < n; i++) group.push(makeAdSeg());
-      this.sinceBreak = 0;  this.needBreak  = riProgram(...MUSICS_BEFORE_BREAK);
-      this.sinceJingle = 0; this.needJingle = riProgram(...JINGLE_EVERY);
-      return group;
-    }
-    if (jingleDue){
-      this.sinceJingle = 0; this.needJingle = riProgram(...JINGLE_EVERY);
-      return [{ kind: 'jingle', src: SRC_JINGLE }];
-    }
-    this.sinceBreak++; this.sinceJingle++;
     return [{ kind: 'music', video: drawMusic() }];
   },
-
   advance(){
     const seg = this.q.shift();
     this.refill();
@@ -1254,32 +1177,7 @@ function togglePlay(){
   }
 }
 
-function skip(){
-  if (!['playing','local','starting'].includes(S.state)) return;
-  S.ending = false;
-  S.state = 'skipping';
-  setStatus('Changement\u2026');
-  const cur = S.active;
-  if (cur){
-    fadeOutChannel(cur, SKIP_FADE);
-  }
-  S.active = null;
-  playNext();
-}
-
-$('progress').addEventListener('click', e => {
-  const ch = S.active;
-  if (S.state !== 'playing' || !ch || ch.type !== 'yt' || !ch.player.ready) return;
-  const rect = e.currentTarget.getBoundingClientRect();
-  const ratio = clamp01((e.clientX - rect.left) / rect.width);
-  try {
-    const dur = ch.player.yt.getDuration();
-    if (dur > 0) ch.player.yt.seekTo(ratio * dur, true);
-  } catch(err){}
-});
-
 $('btn-play').addEventListener('click', togglePlay);
-$('btn-skip').addEventListener('click', skip);
 document.addEventListener('keydown', e => {
   if (e.code === 'Space' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){ e.preventDefault(); togglePlay(); }
 });
@@ -1291,6 +1189,107 @@ $('vol').addEventListener('input', e => {
 });
 $('btn-retry').addEventListener('click', () => location.reload());
 
+/* ---------- Studio : pilotage temps réel ----------
+   Si un serveur Radio OACV répond, le lecteur suit ses directives :
+   morceau suivant choisi, lancement immédiat, interruption (jingle
+   + arrêt de la rotation), reprise. Sans serveur, la radio tourne
+   en autonomie, exactement comme avant. */
+const Studio = {
+  timer: null, seen: null, resumed: null, pendingAfter: null,
+
+  start(){
+    if (this.timer) return;
+    if (!this._hook && typeof window.segFinished === "function"){
+      const sf = window.segFinished; this._hook = true;
+      window.segFinished = (ch) => {
+        if (this.pendingAfter){
+          const id = this.pendingAfter.id; this.pendingAfter = null; this.seen = id;
+          S.active = null; releaseChannel(ch); this.applyInterrupt(); return;
+        }
+        return sf(ch);
+      };
+    }
+    this.timer = setInterval(() => this.poll(), 3000);
+    this.poll();
+  },
+
+  async poll(){
+    let d = null;
+    try { const r = await fetch("/api/studio/directives", { cache: "no-store" }); if (r.ok) d = await r.json(); }
+    catch(e){ return; }                    // pas de serveur : radio autonome
+    if (!d) return;
+    const it = d.interrupt;
+    if (it && it.active && this.seen !== it.id){
+      if (it.when === "after" && S.active && ["playing","local","starting"].includes(S.state)){
+        this.pendingAfter = { id: it.id }; // au naturel : à la fin du morceau en cours
+      } else {
+        this.seen = it.id; this.pendingAfter = null; this.applyInterrupt();
+      }
+    } else if (it && !it.active && it.id && this.resumed !== it.id){
+      this.resumed = it.id; this.pendingAfter = null;
+      if (S.state === "paused") togglePlay();          // la rotation repart
+    }
+    if (d.playNow && d.playNow.id && d.playNow.videoId && this.seen !== d.playNow.id){
+      this.seen = d.playNow.id; this.forcePlay(d.playNow.videoId);
+    }
+    if (d.playNext && d.playNext.id && d.playNext.videoId && this.seen !== d.playNext.id){
+      this.seen = d.playNext.id; this.queueNext(d.playNext.videoId);
+    }
+  },
+
+  applyInterrupt(){
+    this.playJingle(() => {
+      S.state = "paused"; pauseAllChannels();
+      setStatus("Interruption — antenne en attente");
+      setLive(false, "INTERRUPTION"); setPlayIcon(false); setEq("paused");
+    });
+  },
+
+  /* coupe ce qui passe, joue le jingle du studio, puis appelle done() */
+  playJingle(done){
+    const cur = S.active;
+    if (cur){ fadeOutChannel(cur, XF_INTO_BREAK); S.active = null; }
+    S.ending = false;
+    const audio = new Audio(SRC_JINGLE);
+    audio.preload = "auto"; audio.volume = clamp01(S.master);
+    let fini = false;
+    const fin = () => { if (fini) return; fini = true; try { audio.pause(); } catch(e){} done(); };
+    audio.addEventListener("ended", fin);
+    audio.addEventListener("error", fin);
+    S.currentSeg = { kind: "jingle", src: SRC_JINGLE, studio: true };
+    setStageUI(S.currentSeg);
+    audio.play().catch(() => setTimeout(fin, 800));
+  },
+
+  /* le studio lance un titre tout de suite */
+  forcePlay(videoId){
+    let v = S.musicPool.find(x => x.id === videoId);
+    if (!v){
+      v = { id: videoId, title: "", author: "", thumb: "https://i.ytimg.com/vi/" + videoId + "/mqdefault.jpg", duration: 0 };
+      S.musicPool.push(v);
+    }
+    S.ending = false; S.state = "skipping";
+    setStatus("Le studio lance un titre…");
+    const cur = S.active;
+    if (cur) fadeOutChannel(cur, SKIP_FADE);
+    S.active = null;
+    S.lastPlayed.unshift(videoId);
+    if (S.lastPlayed.length > RECENT_MAX) S.lastPlayed.pop();
+    saveRecent();
+    startChannel(createChannel({ kind: "music", video: v }));
+  },
+
+  /* le studio choisit le prochain morceau : il part à la fin du titre en cours */
+  queueNext(videoId){
+    let v = S.musicPool.find(x => x.id === videoId);
+    if (!v){
+      v = { id: videoId, title: "", author: "", thumb: "https://i.ytimg.com/vi/" + videoId + "/mqdefault.jpg", duration: 0 };
+      S.musicPool.push(v);
+    }
+    planner.q.unshift({ kind: "music", video: v });
+    refreshQueueUI(); ensurePreloads();
+  },
+};
 /* ---------- Démarrage ---------- */
 function waitForApi(){
   return new Promise(res => {
@@ -1324,8 +1323,8 @@ function waitForApi(){
     }
   }, 150);
   $('btn-play').disabled = false;
-  $('btn-skip').disabled = false;
   Vetter.start();                       // apprentissage du catalogue, en fond
+  Studio.start();                       // pilotage temps réel (si serveur présent)
   setStatus('Prêt — appuie sur lecture');
   setEq('idle');
   refreshQueueUI();

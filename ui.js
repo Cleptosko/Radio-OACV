@@ -926,9 +926,22 @@ const Auth = {
     el.authOverlay.addEventListener('click', e => { if (e.target === el.authOverlay) this.close(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') this.close(); });
     if (el.authForm){
-      el.authForm.addEventListener('submit', e => {
-        e.preventDefault();                    // aucune requête, aucun compte créé
-        if (el.authNote) el.authNote.classList.add('show');
+      el.authForm.addEventListener("submit", async e => {
+        e.preventDefault();
+        /* avec le serveur complet : vraie connexion puis bascule au studio ;
+           sans serveur : simple information, aucune requête n'aboutit */
+        const email = el.authEmail ? el.authEmail.value.trim() : "";
+        const pass = document.getElementById("auth-password");
+        try {
+          const r = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ email, password: pass ? pass.value : "" }),
+          });
+          if (r.ok){ window.location.href = "/studio"; return; }
+        } catch(err){ /* pas de serveur : on reste sur le message */ }
+        if (el.authNote) el.authNote.classList.add("show");
         if (el.authEmail) el.authEmail.focus();
       });
     }
