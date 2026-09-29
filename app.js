@@ -29,6 +29,18 @@ const FAIL_COOLDOWN       = 15 * 60 * 1000;
 const PLAYLIST_MAX_PAGES  = 12;  // une page ≈ 100 titres : couvre de très longues playlists
 const PLAYLIST_MIN_PLAUSIBLE = 40; // en dessous, on soupçonne une source tronquée
 
+/* Mémoire des titres que YouTube accepte réellement en lecture intégrée.
+   Une grande partie du catalogue répond « erreur 150 » (lecture intégrée
+   interdite par l'ayant droit). Sans cette mémoire, l'antenne retombait
+   sans arrêt sur ces titres et les enchaînait à toute vitesse. */
+const VERDICT_KEY   = 'oacv_verdicts_v1';
+const VERDICT_OK_MS = 30 * 24 * 60 * 60 * 1000;  // un titre sain est re-testé après 30 jours
+const VERDICT_KO_MS =      24 * 60 * 60 * 1000;  // un titre refusé est retenté le lendemain
+const VET_WINDOW_MS = 2200;   // temps laissé à YouTube pour accepter ou refuser un titre
+const VET_MAX_PAR   = 4;      // titres testés en même temps
+const VET_GAP_MS    = 350;    // respiration entre deux vagues de tests
+const VET_MIN_OK    = 5;      // à partir de là, on ne diffuse plus que des titres vérifiés
+
 const PIPED_INSTANCES = [
   'https://pipedapi.kavin.rocks',
   'https://pipedapi.adminforge.de',
@@ -182,11 +194,58 @@ const S = {
   master: 0.8,
   musicPool: [], adsPool: [],
   recentFail: new Map(),
+  verdicts: new Map(),     // verdicts YouTube persistants : 'ok' | 'ko' (voir verdictOf)
   currentSeg: null,
   lastPlayed: loadRecent(),
   startWatch: { elapsed: 0, retries: 0, id: null },
   ending: false,
 };
+
+/* Titres que YouTube a acceptés / refusés, gardés d'une session à l'autre. */
+function loadVerdicts(){
+  try {
+    const raw = JSON.parse(localStorage.getItem(VERDICT_KEY) || '{}');
+    const m = new Map();
+    for (const id of Object.keys(raw)){
+      const e = raw[id];
+      if (Array.isArray(e) && typeof e[1] === 'number') m.set(id, { ok: !!e[0], t: e[1] });
+    }
+    return m;
+  } catch(e){ return new Map(); }
+}
+
+let verdictSaveTimer = null;
+function saveVerdicts(){
+  if (verdictSaveTimer) return;
+  verdictSaveTimer = setTimeout(() => {
+    verdictSaveTimer = null;
+    try {
+      const o = {};
+      S.verdicts.forEach((e, id) => { o[id] = [e.ok ? 1 : 0, e.t]; });
+      localStorage.setItem(VERDICT_KEY, JSON.stringify(o));
+    } catch(e){ /* mémoire non persistante : l'antenne reste utilisable */ }
+  }, 1000);
+}
+
+function verdictOf(id){
+  if (!id) return 'inconnu';
+  const e = S.verdicts.get(id);
+  if (!e) return 'inconnu';
+  const age = Date.now() - e.t;
+  if (e.ok) return age < VERDICT_OK_MS ? 'ok' : 'inconnu';
+  return age < VERDICT_KO_MS ? 'ko' : 'inconnu';
+}
+
+function setVerdict(id, ok){
+  if (!id) return;
+  const prev = S.verdicts.get(id);
+  if (prev && prev.ok === !!ok){ prev.t = Date.now(); saveVerdicts(); return; }
+  S.verdicts.set(id, { ok: !!ok, t: Date.now() });
+  saveVerdicts();
+  if (verdictOf(id) === 'ok') console.info('[OACV] titre retenu :', id);
+}
+
+S.verdicts = loadVerdicts();
 
 /* ---------- Chargement des playlists (multi-sources) ---------- */
 async function fetchJSON(url, timeout = 9000){
@@ -375,14 +434,37 @@ async function resolveMeta(v){
 /* ---------- Rotation intelligente (shuffle bags) ---------- */
 const musicBag = { bag: [], offset: 0 };
 
+/* Un titre refusé par YouTube ne doit plus jamais être diffusé. */
+function isFailing(id){
+  const f = S.recentFail.get(id);
+  if (f && Date.now() - f < FAIL_COOLDOWN) return true;
+  return verdictOf(id) === 'ko';
+}
+
+/* Le sous-ensemble vérifié, dès qu'il est assez fourni pour tenir l'antenne. */
+function vettedPool(){
+  const ok = S.musicPool.filter(v => verdictOf(v.id) === 'ok');
+  return ok.length >= VET_MIN_OK ? ok : null;
+}
+
+/* Titre de secours : un titre dont on sait qu'il passe, pas trop récent. */
+function drawVettedMusic(){
+  const ok = S.musicPool.filter(v => verdictOf(v.id) === 'ok' && !isFailing(v.id));
+  if (!ok.length) return null;
+  const recent = new Set(S.lastPlayed.slice(0, Math.min(15, Math.max(0, ok.length - 1))));
+  const cands = ok.filter(v => !recent.has(v.id));
+  const liste = cands.length ? cands : ok;
+  return liste[ri(0, liste.length - 1)];
+}
+
 function drawMusic(){
-  const isFailing = id => { const f = S.recentFail.get(id); return f && Date.now() - f < FAIL_COOLDOWN; };
   if (!musicBag.bag.length){
-    const pool = S.musicPool.filter(v => !isFailing(v.id));
+    const base = vettedPool() || S.musicPool;
+    const pool = base.filter(v => !isFailing(v.id));
     const recent = new Set(S.lastPlayed.slice(0, 20));   // jamais les 20 derniers titres
     let cands = pool.filter(v => !recent.has(v.id));
     if (cands.length < 3) cands = pool;
-    if (!cands.length) cands = S.musicPool.slice();
+    if (!cands.length) cands = base.slice();
     musicBag.bag = shuffleProgram(cands.slice());
     /* on « saute » les titres déjà diffusés dans la tranche en cours,
        pour qu'un auditeur arrivant en retard soit à la même place */
@@ -406,7 +488,9 @@ function drawMusic(){
     }
     if (!isFailing(v.id)) return v;
   }
-  return S.musicPool[ri(0, S.musicPool.length - 1)];
+  const secours = S.musicPool.filter(v => verdictOf(v.id) !== 'ko');
+  const liste = secours.length ? secours : S.musicPool;
+  return liste[ri(0, liste.length - 1)];
 }
 
 /* Pubs : sac unique. PubOACV y figure plusieurs fois (PUBOACV_WEIGHT),
@@ -422,7 +506,6 @@ function buildAdBag(){
 }
 
 function drawAd(){
-  const isFailing = id => { const f = S.recentFail.get(id); return f && Date.now() - f < FAIL_COOLDOWN; };
   if (!adBag.bag.length) adBag.bag = buildAdBag();
 
   for (let guard = 0; guard < 10 && adBag.bag.length; guard++){
@@ -523,7 +606,7 @@ function createPlayers(){
 }
 const byDom = id => S.players.find(p => p.dom === id);
 const rotation = () => S.players.filter(p => !p.fetch);
-const anyIdle = () => rotation().find(p => !p.chId);
+const anyIdle = () => rotation().find(p => !p.chId && !Vetter.busy(p));
 // lecteur déjà préparé avec cette vidéo : uniquement hors canaux actifs/phanomènes en fondu
 const holderOf = vid => rotation().find(p => p.videoId === vid && !p.chId);
 const isCued = p => p && p.ready && [1,3,5].includes(p.yt.getPlayerState());
@@ -585,9 +668,14 @@ function createChannel(seg){
     if (!p){
       p = anyIdle();
       if (!p){
-        // jamais voler le lecteur d'un canal en fondu de sortie
+        // jamais voler le lecteur d'un canal en fondu de sortie, ni un test en cours
         const busy = new Set([S.active && S.active.player, S.fading && S.fading.player]);
-        p = rotation().find(x => !busy.has(x)) || rotation()[0];
+        p = rotation().find(x => !busy.has(x) && !Vetter.busy(x));
+        if (!p){
+          const v = rotation().find(x => !busy.has(x));
+          if (v){ Vetter.abort(v); p = v; }
+        }
+        p = p || rotation()[0];
       }
       cueOn(p, vid);
     }
@@ -621,6 +709,7 @@ function startChannel(ch, mode){
     armStartWatch(segVideoId(ch.seg));
     try {
       const p = ch.player;
+      try { p.yt.unMute(); } catch(e){}   // un lecteur utilisé pour un test est muet : on le rend audible
       if (isCued(p) && p.videoId === segVideoId(ch.seg)){
         p.yt.playVideo();                       // lecteur déjà prêt → démarrage à chaud
       } else {
@@ -704,7 +793,14 @@ function armStartWatch(id){
 
 /* ---------- Orchestration ---------- */
 function playNext(){
-  const seg = planner.advance();
+  let seg = planner.advance();
+
+  /* Titre non vérifié alors qu'on sait déjà tenir l'antenne : on prend un
+     titre dont on est sûr qu'il passe, plutôt que de le découvrir en direct. */
+  if (seg.kind === 'music' && verdictOf(seg.video.id) !== 'ok'){
+    const v = drawVettedMusic();
+    if (v) seg = { kind: 'music', video: v };
+  }
 
   if (seg.kind === 'music'){
     if (!seg.video.title) resolveMeta(seg.video);
@@ -730,7 +826,7 @@ function ensurePreloads(){
   const busy = new Set();
   for (const c of [S.active, S.fading]) if (c && c.type === 'yt') busy.add(segVideoId(c.seg));
 
-  const recyclable = rotation().filter(p => !p.chId && !wantSet.has(p.videoId));
+  const recyclable = rotation().filter(p => !p.chId && !Vetter.busy(p) && !wantSet.has(p.videoId));
   for (const vid of wants){
     if (busy.has(vid)) continue;
     if (rotation().some(p => p.videoId === vid && !p.chId)) continue; // déjà préparé sur un lecteur
@@ -739,6 +835,112 @@ function ensurePreloads(){
     cueOn(p, vid);
   }
 }
+
+/* ---------- Vérification silencieuse de la bibliothèque ----------
+   YouTube refuse la lecture intégrée d'une grande partie du catalogue
+   (« erreur 150 »). L'antenne ne peut pas le deviner : on teste donc chaque
+   titre une fois, en silence et en parallèle, sur des lecteurs libres, et on
+   garde le verdict d'une session à l'autre. Après une première écoute, seuls
+   les titres qui passent vraiment sont diffusés. */
+const Vetter = {
+  queue: [],
+  tests: new Map(),        // dom du lecteur → { id, t0 }
+  started: false,
+  lastRun: 0,
+
+  start(){
+    if (this.started) return;
+    this.started = true;
+    this.build();
+    setInterval(() => this.tick(), 300);
+  },
+
+  build(){
+    const seen = new Set();
+    this.queue = [];
+    const add = id => { if (id && !seen.has(id)){ seen.add(id); this.queue.push(id); } };
+    for (const s of planner.q.slice(0, 5)) add(segVideoId(s));
+    for (const v of shuffle(S.musicPool.slice())) add(v.id);
+    for (const v of shuffle(S.adsPool.slice())) add(v.id);
+  },
+
+  busy(p){ return !!p && this.tests.has(p.dom); },
+  isTesting(id){ for (const t of this.tests.values()) if (t.id === id) return true; return false; },
+
+  next(){
+    while (this.queue.length){
+      const id = this.queue.shift();
+      if (verdictOf(id) === 'inconnu') return id;
+    }
+    return null;
+  },
+
+  /* un titre qui va bientôt passer à l'antenne est testé en priorité */
+  priority(){
+    for (const s of planner.q.slice(0, 4)){
+      const id = segVideoId(s);
+      if (!id || verdictOf(id) !== 'inconnu' || this.isTesting(id)) continue;
+      const i = this.queue.indexOf(id);
+      if (i === 0) continue;
+      if (i > 0) this.queue.splice(i, 1);
+      this.queue.unshift(id);
+    }
+  },
+
+  tick(){
+    const now = performance.now();
+    /* pas d'erreur dans la fenêtre → YouTube a accepté le titre */
+    for (const [dom, t] of [...this.tests]){
+      if (now - t.t0 >= VET_WINDOW_MS) this.finish(dom, true);
+    }
+    if (now - this.lastRun < VET_GAP_MS) return;
+    this.priority();
+    if (!this.queue.length) return;
+
+    const wants = new Set();
+    for (const s of planner.q.slice(0, 4)){ const id = segVideoId(s); if (id) wants.add(id); }
+
+    for (const p of S.players){
+      if (this.tests.size >= VET_MAX_PAR) break;
+      if (p.chId || this.busy(p) || !p.ready) continue;
+      if (p.videoId && wants.has(p.videoId)) continue;   // lecteur déjà préparé pour l'antenne
+      const id = this.next();
+      if (!id) break;
+      this.begin(p, id);
+      this.lastRun = now;
+    }
+  },
+
+  begin(p, id){
+    this.tests.set(p.dom, { id, t0: performance.now() });
+    p.videoId = id;
+    try { p.yt.mute(); } catch(e){}          // jamais un son de test dans les enceintes
+    try { p.yt.loadVideoById({ videoId: id }); }
+    catch(e){ this.finish(p.dom, false); }
+  },
+
+  fail(p){ this.finish(p.dom, false); },
+
+  /* l'antenne a besoin de ce lecteur tout de suite */
+  abort(p){
+    if (!this.busy(p)) return;
+    const t = this.tests.get(p.dom);
+    this.tests.delete(p.dom);
+    if (t && this.queue.indexOf(t.id) < 0) this.queue.unshift(t.id);
+    p.videoId = null;
+  },
+
+  finish(dom, ok){
+    const t = this.tests.get(dom);
+    if (!t) return;
+    this.tests.delete(dom);
+    setVerdict(t.id, ok);
+    const p = byDom(dom);
+    if (!p || p.chId) return;                // devenu un canal entre-temps : on n'y touche plus
+    try { p.yt.stopVideo(); } catch(e){}
+    p.videoId = null;
+  },
+};
 
 /* ---------- Événements lecteurs ---------- */
 function onYtState(p, st){
@@ -761,9 +963,15 @@ function onYtState(p, st){
 }
 
 function onYtError(p, code){
-  if (!p || p.fetch) return;
+  if (!p) return;
+  /* test silencieux de la bibliothèque : on enregistre le verdict, rien d'autre */
+  if (Vetter.busy(p)){ Vetter.fail(p); return; }
+  if (p.fetch) return;
   const vid = p.videoId;
-  if (vid) S.recentFail.set(vid, Date.now());
+  if (vid){
+    S.recentFail.set(vid, Date.now());
+    setVerdict(vid, false);            // YouTube refuse ce titre : il ne repassera plus
+  }
   const i = planner.q.findIndex(s => segVideoId(s) === vid && s.kind === 'music');
   if (i >= 0){
     planner.replaceAt(i, { kind: 'music', video: drawMusic() });
@@ -776,7 +984,9 @@ function onYtError(p, code){
     releaseChannel(ch);
     playNext();
   } else if (p.chId){
-    p.chId = null;
+    /* ne jamais détacher le lecteur du canal en cours : sinon l'antenne le
+       réutilise pour un autre titre et coupe celui qu'on écoute */
+    if (!S.active || S.active.player !== p) p.chId = null;
   }
 }
 
@@ -1115,6 +1325,7 @@ function waitForApi(){
   }, 150);
   $('btn-play').disabled = false;
   $('btn-skip').disabled = false;
+  Vetter.start();                       // apprentissage du catalogue, en fond
   setStatus('Prêt — appuie sur lecture');
   setEq('idle');
   refreshQueueUI();

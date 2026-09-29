@@ -12,18 +12,19 @@ echo.
 where node >nul 2>nul
 if errorlevel 1 goto :sansnode
 
-if not exist ".env" (
-  echo   Premiere utilisation : configuration du serveur.
-  echo   Vous allez choisir vos identifiants d'administration.
-  echo   Pour le compte de votre collegue : appuyez sur Entree, vous
-  echo   pourrez l'ajouter plus tard avec  npm run add-account
-  echo.
-  node tools\setup.js
-  if not exist ".env" goto :sansenv
-  echo.
-)
+if exist ".env" goto :serveur
 
-echo   Demarrage du serveur...
+echo   Premiere utilisation : que voulez-vous faire ?
+echo.
+echo     [1] Ecouter la radio tout de suite (sans administration)
+echo     [2] Configurer l'administration (comptes, annonces, banque)
+echo.
+choice /c 12 /n /m "  Votre choix [1] : "
+if errorlevel 2 goto :config
+goto :ecoute
+
+:serveur
+echo   Demarrage du serveur (site + administration)...
 start "Radio OACV - serveur" /min cmd /k "node server\server.js"
 timeout /t 3 /nobreak >nul
 
@@ -42,11 +43,31 @@ echo.
 pause
 exit /b 0
 
-:sansenv
+:ecoute
+echo   Demarrage en mode ecoute (site public seul)...
 echo.
-echo   La configuration n'a pas ete creee : la radio ne peut pas demarrer.
+echo   Pour activer plus tard l'administration (annonces, banque de
+echo   musiques, programmation) :  npm run setup  puis relancez ce fichier.
+echo.
+start "Radio OACV - site" /min cmd /k "node tools\serve-site.js"
+timeout /t 2 /nobreak >nul
+start "" http://127.0.0.1:8123/index.html
+echo   Le site est ouvert dans votre navigateur : appuyez sur Lecture.
+echo   (gardez la fenetre "Radio OACV - site" ouverte ; Ctrl+C dedans pour arreter)
+echo.
 pause
-exit /b 1
+exit /b 0
+
+:config
+echo.
+echo   Configuration du serveur : vous allez choisir vos identifiants
+echo   d'administration. Pour le compte de votre collegue : appuyez sur
+echo   Entree, vous pourrez l'ajouter plus tard avec  npm run add-account
+echo.
+node tools\setup.js
+if not exist ".env" goto :ecoute
+echo.
+goto :serveur
 
 :sansnode
 echo   Node.js n'est pas installe : demarrage en mode simple.

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node server/server.js",
+    "site": "node tools/serve-site.js",
     "setup": "node tools/setup.js",
     "add-account": "node tools/add-account.js",
     "password": "node tools/change-password.js",

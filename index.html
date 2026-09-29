@@ -18,7 +18,7 @@ automatique du navigateur ne doit jamais pouvoir les réécrire -->
 </script>
 <script src="https://www.youtube.com/iframe_api" async></script>
 </head>
-<body data-kind="idle" data-playing="0" data-haslyrics="0" data-noside="1" data-hasart="0" data-stage="idle">
+<body data-kind="idle" data-playing="0" data-hasart="0" data-stage="idle">
 
 <!-- ==================== FOND IMMERSIF MULTI-COUCHES ==================== -->
 <div class="bg" aria-hidden="true">
@@ -42,7 +42,9 @@ automatique du navigateur ne doit jamais pouvoir les réécrire -->
 <!-- ==================== BARRE HAUTE ==================== -->
 <header class="topbar">
   <div class="brand">
-    <span class="brand-mark"><img class="brand-logo" src="assets/logo-oacv.png" alt="Logo Radio OACV"><span class="brand-ring"></span></span>
+    <button class="brand-mark" id="brand-login" type="button" title="Se connecter" aria-label="Se connecter">
+      <img class="brand-logo" src="assets/logo-oacv.png" alt="Logo Radio OACV">
+    </button>
     <span class="brand-text">
       <b>Radio&nbsp;OACV</b>
       <i>Le son qui te suit · 24/7</i>
@@ -145,39 +147,6 @@ automatique du navigateur ne doit jamais pouvoir les réécrire -->
     </div>
   </section>
 
-  <!-- ==================== COLONNE PAROLES / PUB-JINGLE ==================== -->
-  <aside class="side" id="side">
-
-    <div class="panel lyrics-panel" id="lyrics-panel">
-      <div class="panel-head">
-        <span class="panel-title">Paroles</span>
-        <span class="panel-meta notranslate" id="lyric-meta"></span>
-      </div>
-      <div class="lyric-viewport" id="lyric-viewport">
-        <div class="lyric-track notranslate" id="lyric-track"></div>
-      </div>
-      <div class="lyric-foot">
-        <span class="lyric-note" id="lyric-note"></span>
-        <div class="offset" id="offset-ctl" hidden>
-          <button class="off-preset" id="off-minus" data-off="-0.5" title="Paroles en avance de 0,5 s">−0,5 s</button>
-          <button class="off-preset" id="off-zero" data-off="0" title="Synchronisation automatique">0 s</button>
-          <button class="off-preset" id="off-plus" data-off="0.5" title="Paroles en retard de 0,5 s">+0,5 s</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel spot-panel hidden" id="spot-panel">
-      <div class="spot-kicker" id="spot-kicker">PUBLICITÉ</div>
-      <div class="spot-emoji" id="spot-emoji">📢</div>
-      <h2 class="spot-title notranslate" id="spot-title">Publicité</h2>
-      <p class="spot-sub notranslate" id="spot-sub">L'antenne revient dans un instant</p>
-      <div class="spot-bars" aria-hidden="true">
-        <span></span><span></span><span></span><span></span><span></span>
-        <span></span><span></span><span></span><span></span><span></span>
-      </div>
-    </div>
-
-  </aside>
 </main>
 
 <footer class="foot">
@@ -210,6 +179,30 @@ automatique du navigateur ne doit jamais pouvoir les réécrire -->
     <h2>Impossible de charger l'antenne</h2>
     <p id="error-detail">Vérifie ta connexion internet, puis réessaie.</p>
     <button class="btn primary" id="btn-retry">Réessayer</button>
+  </div>
+</div>
+
+<!-- ==================== CONNEXION (affichage seul : aucun compte créable) ==================== -->
+<div class="auth-overlay hidden" id="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+  <div class="auth-card">
+    <button class="auth-close" id="auth-close" type="button" aria-label="Fermer la fenêtre de connexion">✕</button>
+    <img class="auth-logo" src="assets/logo-oacv.png" alt="">
+    <h2 class="auth-title" id="auth-title">Radio OACV</h2>
+    <p class="auth-sub">Espace privé — accès réservé à l'équipe</p>
+
+    <form class="auth-form" id="auth-form" autocomplete="on">
+      <label class="auth-field">
+        <span>Identifiant</span>
+        <input id="auth-email" type="email" name="email" autocomplete="username" placeholder="vous@exemple.fr">
+      </label>
+      <label class="auth-field">
+        <span>Mot de passe</span>
+        <input id="auth-password" type="password" name="password" autocomplete="current-password" placeholder="••••••••">
+      </label>
+
+      <button class="btn auth-submit" id="auth-submit" type="submit">Se connecter</button>
+      <p class="auth-note" id="auth-note">Connexion bientôt disponible — aucun compte ne peut être créé ici.</p>
+    </form>
   </div>
 </div>
 

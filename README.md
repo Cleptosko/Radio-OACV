@@ -12,7 +12,7 @@ et un espace d'administration privé pour deux personnes.
               ▼                           ▼
          Site public                 Bot Discord
     (écoute, pochette,                (salon vocal)
-     paroles, animations)
+     animations)
 ```
 
 ---
@@ -21,7 +21,7 @@ et un espace d'administration privé pour deux personnes.
 
 | Élément | État |
 |---|---|
-| Site public (design OACV, pochette, couleurs dynamiques, paroles, visualiseur) | ✅ en place, **fichiers inchangés** (`index.html`, `style.css`, `ui.js`, `app.js`) |
+| Site public (design OACV, pochette, couleurs dynamiques, visualiseur) | ✅ en place (`index.html`, `style.css`, `ui.js`, `app.js`) — **affichage des paroles retiré** (inutile pour la radio) |
 | Site public **hébergé 24h/24, 7j/7** | ✅ **en ligne** sur firtoks.github.io/radio-oacv (§7) |
 | Serveur (site + API privée) | ✅ en place — `server/` |
 | Connexion privée `/admin` pour deux comptes | ✅ en place |
@@ -45,17 +45,48 @@ audio continu que le bot Discord peut consommer. Tout ce qui ne dépend pas de c
 
 Prérequis : **Node.js 18 ou plus** (aucune dépendance npm n'est nécessaire).
 
+### Écouter la radio tout de suite (sans administration)
+
 ```bash
 cd radio
+npm run site      # sert le site public → http://localhost:8123/
+```
+
+Ce mode ne sert que les fichiers publics (page, styles, scripts, audio) : ni compte,
+ni `.env`, ni annonces. Il sert à écouter en local **tout de suite**. C'est aussi la
+seule bonne façon d'ouvrir la page : en `file://` (double-clic sur `index.html`), le
+navigateur bloque les playlists et la radio reste sans musique.
+
+#### Titres que YouTube refuse de diffuser
+
+YouTube interdit la lecture intégrée d'une partie du catalogue de labels
+(réponse `erreur 150 / 101` : *« embedding disabled »*, ou demande de
+connexion « je ne suis pas un robot »). Un titre refusé n'affiche alors
+qu'un silence : c'est ce qui faisait défiler l'antenne à toute vitesse.
+
+Le site vérifie donc **une fois** chaque titre, en silence et en arrière-plan,
+et retient le verdict dans le navigateur (`localStorage`, clé
+`oacv_verdicts_v1`) : les titres refusés ne sont plus jamais diffusés, ceux
+qui passent deviennent la vraie bibliothèque. Le verdict d'un titre refusé est
+retenté au bout d'un jour, celui d'un titre sain après trente jours.
+
+Conséquence : la première écoute peut encore sauter quelques titres pendant
+l'apprentissage, puis l'antenne redevient stable. Vider les données du site
+relance l'apprentissage.
+
+### Activer l'administration
+
+```bash
 npm run setup     # crée .env : secret de session + vos deux comptes
-npm start         # démarre le serveur
+npm start         # démarre le serveur complet
 ```
 
 * Site public : `http://localhost:8123/`
 * Espace privé : `http://localhost:8123/admin`
 
 Sur Windows, le plus simple : double-cliquez sur **`Lancer-Radio-OACV.bat`**
-(il propose la configuration à la première utilisation, démarre le serveur et ouvre le site).
+(au premier lancement il propose *écouter tout de suite* ou *configurer
+l'administration*, puis démarre et ouvre le site).
 
 `npm run setup` vous demande :
 
@@ -364,8 +395,8 @@ dans le flux : ni le bot ni le site n'ont besoin d'être ouverts pour qu'elles p
    crossfades, jingles, publicités (avec le poids de la pub OACV), annonces programmées,
    en réutilisant `server/library.js` et la file d'insertion déjà en place ;
 3. publier le flux continu sur `/stream` (MP3 ou Opus) avec les métadonnées du direct ;
-4. faire consommer ce flux par le site public (les animations, la pochette et les paroles
-   restent identiques — les paroles pourront même être synchronisées sur le flux réel) ;
+4. faire consommer ce flux par le site public (les animations et la pochette restent
+   identiques — seul le lecteur audio change) ;
 5. écrire le bot Discord.
 
 ---

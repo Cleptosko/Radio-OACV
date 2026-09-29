@@ -13,7 +13,7 @@ en HTTPS, depuis GitHub Pages.
 index.html          la page
 style.css           le design (couleurs dynamiques, animations)
 app.js              le moteur : antenne, file de lecture, jingle, publicité
-ui.js               l'interface : pochette, paroles, visualiseur
+ui.js               l'interface : pochette, visualiseur
 assets/             le logo
 audio/              jingle et publicité maison, joués par app.js
 netlify.toml        configuration d'hébergement alternative (Netlify)
