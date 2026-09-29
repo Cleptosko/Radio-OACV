@@ -1,0 +1,81 @@
+# ============================================================
+#  RADIO OACV — service systemd
+#
+#  À installer dans /etc/systemd/system/radio-oacv.service
+#  (ou laisser dans le dépôt et copier : voir deploy/README.md).
+#
+#  Le service redémarre tout seul en cas de crash et au démarrage de
+#  la machine : c'est ce qui rend les annonces programmées fiables
+#  même après une coupure.
+# ============================================================
+
+[Unit]
+Description=Radio OACV — serveur d'antenne et administration
+Documentation=https://github.com/Firtoks/radio-oacv
+# Le serveur a besoin du réseau pour lire les playlists YouTube,
+# mais il démarre même sans (il réessaiera).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# --- À adapter à votre installation ---
+WorkingDirectory=/srv/radio-oacv
+ExecStart=/usr/bin/node server/server.js
+User=radio
+Group=radio
+
+# Les secrets (SESSION_SECRET, empreintes des mots de passe) sont
+# lus ici : ce fichier ne doit pas être versionné et n'est lisible
+# que par root.
+EnvironmentFile=/srv/radio-oacv/.env
+Environment=NODE_ENV=production
+
+# --- Redémarrage automatique ---
+# "on-failure" : ne redémarre pas après un arrêt volontaire (systemctl stop)
+Restart=on-failure
+RestartSec=5s
+# Si le serveur plante en boucle, on arrête d'insister après 5 essais
+# en 10 minutes plutôt que de le laisser utiliser 100 % du CPU.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+# --- Temps réel ---
+# Les annonces programmées sont vérifiées toutes les 5 secondes :
+# le serveur n'a pas besoin de davantage.
+Nice=-5
+
+# --- Durcissement ---
+# Le serveur ne lit que ses données et n'écrit que dans data/.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Le seul dossier inscriptible
+ReadWritePaths=/srv/radio-oacv/data
+
+# Le serveur a besoin d'écrire ses données et rien d'autre ;
+# /srv/radio-oacv est en lecture seule pour lui (ProtectSystem=strict).
+# Si la banque de musiques ne se met pas à jour, vérifier que
+# /srv/radio-oacv/data existe et appartient à l'utilisateur radio :
+#   chown -R radio:radio /srv/radio-oacv/data
+
+[Install]
+WantedBy=multi-user.target

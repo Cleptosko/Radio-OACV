@@ -1,0 +1,65 @@
+# ============================================================
+#  RADIO OACV — Caddy (HTTPS automatique)
+#
+#  À installer dans /etc/caddy/Caddyfile
+#
+#  Caddy obtient et renouvelle lui-même le certificat HTTPS
+#  (Let's Encrypt) : il faut juste un nom de domaine pointant
+#  vers l'adresse IP du serveur, et les ports 80 et 443 ouverts.
+# ============================================================
+
+radio.exemple.fr {
+	encode gzip zstd
+
+	# Le serveur Node écoute en HTTP sur 127.0.0.1 : le monde
+	# extérieur ne parle qu'à Caddy, en HTTPS.
+	# Le port est remplacé à l'installation par celui du .env.
+	reverse_proxy 127.0.0.1:8123 {
+		# Caddy est le seul proxy de confiance : le serveur lit
+		# alors l'adresse réelle du visiteur dans X-Forwarded-For,
+		# ce qui rend son anti-force brute efficace.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "SAMEORIGIN"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		# Le micro n'est utilisé que par les deux administrateurs,
+		# sur ce même site : on l'autorise ici, et nulle part ailleurs.
+		Permissions-Policy        "microphone=(self)"
+		-Server
+	}
+
+	# --- Journalisation ---
+	# On garde les erreurs seulement : le trafic du site public
+	# est déjà servi par GitHub Pages, le disque du VPS est petit.
+	log {
+		output file /var/log/caddy/radio-oacv.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format console
+		level ERROR
+	}
+}
+
+# ============================================================
+#  Limitation de débit
+#
+#  Elle est volontairement ABSENTE ici.
+#
+#  La directive « rate_limit » n'existe que depuis Caddy 2.10 : sur
+#  une version plus ancienne, Caddy refuse de démarrer. Le serveur
+#  de la radio bloque déjà lui-même les tentatives de connexion
+#  (5 échecs par compte + 12 par adresse IP), ce qui suffit pour
+#  les deux administrateurs légitimes.
+#
+#  Si un jour le serveur est harcelé, deux options :
+#   • mettre à jour Caddy (>= 2.10) et ajouter :
+#       @sess path /api/login /api/session
+#       rate_limit @sess { zone login { events 10; window 1m; key {remote_host} } }
+#   • ou filtrer le port 8123 au niveau du fournisseur.
+# ============================================================

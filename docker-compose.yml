@@ -1,0 +1,18 @@
+# ============================================================
+#  RADIO OACV — docker compose up -d --build
+#  Les secrets viennent de .env (jamais versionné) : ils ne sont
+#  donc pas écrits ici non plus.
+# ============================================================
+services:
+  radio:
+    build: .
+    container_name: radio-oacv
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRUST_PROXY: "1"
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./data:/app/data
+      - ./audio:/app/audio:ro

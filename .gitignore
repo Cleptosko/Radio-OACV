@@ -1,0 +1,21 @@
+# ============================================================
+#  SECRETS ET DONNÉES D'EXÉCUTION — NE JAMAIS VERSIONNER
+#  (.env.example est le seul fichier d'environnement à versionner)
+# ============================================================
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Données produites par le serveur : annonces enregistrées, programmation,
+# cache des playlists, sessions, journaux
+data/
+
+# Outils
+node_modules/
+*.log
+
+# Windows
+Thumbs.db
+desktop.ini

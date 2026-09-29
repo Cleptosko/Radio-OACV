@@ -1,0 +1,18 @@
+{
+  "name": "radio-oacv",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Radio OACV — serveur d'antenne, espace d'administration privé et flux audio pour le bot Discord",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "setup": "node tools/setup.js",
+    "add-account": "node tools/add-account.js",
+    "export": "node tools/export-site.js",
+    "check": "node --check server/server.js"
+  },
+  "dependencies": {}
+}
