@@ -353,8 +353,8 @@ route('GET', '/api/me', (req, res) => {
 route('POST', '/api/login', async (req, res) => {
   const body = await readJson(req, 64 * 1024);
   const session = await auth.login(req, res, body.email, body.password);
-  auth.csrf(req, res);
-  sendJson(res, 200, { user: auth.publicUser(session) });
+  const csrf = auth.csrf(req, res);
+  sendJson(res, 200, { user: auth.publicUser(session), csrf });
 });
 
 route('POST', '/api/logout', (req, res) => {
@@ -710,7 +710,7 @@ const server = http.createServer(async (req, res) => {
       return await serveAdminAsset(req, res, pathname.replace(/^\/admin\/?/, ''));
     }
     if (pathname === '/studio' || pathname.startsWith('/studio/')){
-      return await serveAdminAsset(req, res, pathname.slice('/studio'.length), path.join(ADMIN_DIR, 'studio'));
+      return await serveAdminAsset(req, res, pathname.slice('/studio'.length), path.join(ROOT, 'studio'));
     }
 
 

@@ -1,0 +1,9 @@
+# Fichiers envoyes a Vercel : le site statique et les fonctions api/
+# tout le reste (donnees, outils, depot de test) reste sur la machine.
+data/
+.test-data/
+node_modules/
+.env
+.env.*
+!.env.example
+*.log

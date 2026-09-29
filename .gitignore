@@ -14,6 +14,7 @@ data/
 
 # Outils
 node_modules/
+.vercel/
 .test-data/
 *.log
 

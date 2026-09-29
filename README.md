@@ -254,7 +254,13 @@ radio/
 │  ├─ library.js       # playlists complètes (Piped paginé + Invidious), activer/désactiver
 │  ├─ announcements.js # réception, stockage et suppression des annonces
 │  ├─ http.js          # multipart, cookies, fichiers avec Range, en-têtes
-│  └─ admin/           # l'interface /admin (HTML/CSS/JS)
+├─ studio/             # le tableau de bord de pilotage (/studio)
+├─ api/                # fonctions Vercel : le site et le studio sans serveur
+│  ├─ _lib.js          # couche commune : auth, CSRF, stockage Upstash
+│  ├─ login.js, logout.js, me.js
+│  ├─ studio/          # directives, état, play-now, next, interrupt, resume, clear
+│  └─ library/music.js # recherche de titres pour choisir un morceau
+├─ vercel.json         # routage et en-têtes Vercel
 ├─ tools/
 │  ├─ setup.js        # assistant de configuration initiale (.env), et porte de secours --only=N
 │  ├─ add-account.js  # ajoute ou remplace le compte du collègue
@@ -424,7 +430,64 @@ dans le flux : ni le bot ni le site n'ont besoin d'être ouverts pour qu'elles p
 
 ---
 
-## 11. En cas de problème
+## 11. Mettre le studio en ligne sur Vercel
+
+GitHub Pages ne sert que des fichiers : aucune connexion, aucun mot de passe,
+aucun pilotage de l'antenne. Vercel exécute du Node.js, donc le studio y
+fonctionne — à une condition : une fonction Vercel n'a pas de disque, et les
+directives (« jouer maintenant », « après le morceau en cours ») doivent donc
+vivre ailleurs. Le projet utilise **Upstash Redis**, interrogé en HTTP par
+fetch() : toujours zéro dépendance npm.
+
+### Marche à suivre
+
+1. Créer une base Upstash Redis gratuite sur console.upstash.com.
+2. Importer le dépôt dans Vercel (Import Project) depuis Cleptosko/Radio-OACV.
+3. Dans **Settings → Environment Variables**, ajouter :
+
+| Variable | Valeur |
+| --- | --- |
+| ADMIN1_EMAIL | admin |
+| ADMIN1_NAME | Admin |
+| ADMIN1_PASSWORD_HASH | l'empreinte scrypt (voir ci-dessous) |
+| SESSION_SECRET | 32 caractères aléatoires ou plus |
+| TRUST_PROXY | 1 |
+| SECURE_COOKIES | 1 |
+| UPSTASH_REDIS_REST_URL | fournie par Upstash |
+| UPSTASH_REDIS_REST_TOKEN | fournie par Upstash |
+| LIBRARY_CACHE_HOURS | 12 |
+
+4. Déployer. Le site est en ligne, et le tableau de bord avec lui.
+
+TRUST_PROXY vaut 1 parce que Vercel transmet l'adresse réelle dans un
+en-tête x-forwarded-for : sans cela, la protection anti-force brute croirait
+que tout le monde vient de la même machine.
+
+### L'empreinte du mot de passe
+
+L'admin/1234 actuel fonctionne déjà : son empreinte se trouve dans votre
+fichier .env local, à la ligne ADMIN1_PASSWORD_HASH. Copiez-la simplement dans
+Vercel.
+
+Pour un mot de passe plus long (8 caractères minimum), la commande npm run setup
+génère l'empreinte et le reste du .env.
+
+### Ce que Vercel ne peut pas faire
+
+Le flux audio 24h/24 : le plan gratuit arrête une fonction après quelques
+secondes, et une radio doit rester ouverte en permanence. Ce n'est pas
+bloquant ici, car l'antenne joue déjà dans le navigateur de chaque auditeur :
+app.js fait tourner la playlist chez le client. Le moteur serveur et le bot
+Discord, eux, resteront sur une machine qui ne s'arrête jamais.
+
+### Revenir en arrière
+
+Rien n'est cassé. npm start continue de servir le site et le studio depuis
+votre machine avec le fichier .env : les deux modes partagent le même code.
+
+---
+
+## 12. En cas de problème
 
 | Symptôme | Solution |
 |---|---|
