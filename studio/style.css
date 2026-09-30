@@ -26,3 +26,17 @@ button.ghost{background:transparent}
 #results img{width:44px;height:33px;object-fit:cover;border-radius:6px;background:#000}
 #results .t{flex:1;min-width:0}.t b{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.t i{font-style:normal;color:var(--mut);font-size:12px}
 #results button{padding:5px 10px;font-size:12.5px}
+
+/* ---- Radio en direct : ce qui passe à l'instant T ---- */
+.card.live{border-color:#8b5cf655}
+#live-state{margin:0 0 12px}
+.now{display:flex;gap:14px;align-items:center;padding:12px;border-radius:11px;background:#0d0b16;border:1px solid #ffffff12}
+.now img{width:78px;height:78px;object-fit:cover;border-radius:9px;background:#000;flex-shrink:0}
+.now .t{flex:1;min-width:0}
+.now b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now i{font-style:normal;color:var(--mut);font-size:12.5px}
+.now .bar{height:5px;border-radius:99px;background:#ffffff1a;margin:9px 0 5px;overflow:hidden}
+.now .bar span{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--acc),#c084fc);transition:width .9s linear}
+.now small{color:var(--mut);font-size:12px;font-variant-numeric:tabular-nums}
+#live-next{margin:12px 0 0}
+.card.live .row{margin:12px 0 10px}

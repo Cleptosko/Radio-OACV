@@ -4,6 +4,8 @@ let csrf = localStorage.getItem("oacv_csrf") || "";
 let user = null;
 let lib = [];
 let libTimer = null;
+let live = null;          /* dernier état de l'antenne */
+let liveAt = 0;           /* quand on l'a reçu, pour faire avancer la barre */
 
 async function api(path, opts){
   opts = opts || {};
@@ -22,6 +24,18 @@ async function api(path, opts){
 function showLogin(){ D("login-card").classList.remove("hidden"); D("dash").classList.add("hidden"); D("logout").classList.add("hidden"); }
 function showDash(){ D("login-card").classList.add("hidden"); D("dash").classList.remove("hidden"); D("logout").classList.remove("hidden"); }
 
+/* Ouvre le tableau de bord et branche les trois rafraichissements :
+   l'état du studio, la banque de titres, et l'antenne en direct. */
+let ticking = null;
+function startDash(){
+  showDash();
+  refresh(); loadLib(); pollLive();
+  if (ticking) return;
+  ticking = setInterval(refresh, 3000);
+  setInterval(pollLive, 3000);
+  setInterval(paintLive, 1000);
+}
+
 D("login-form").addEventListener("submit", async e => {
   e.preventDefault();
   D("lg-err").textContent = "";
@@ -37,7 +51,7 @@ D("login-form").addEventListener("submit", async e => {
     csrf = j.csrf || csrf;
     if (csrf) localStorage.setItem("oacv_csrf", csrf);
     user = j.user;
-    showDash(); refresh(); loadLib();
+    startDash();
   } catch(err){ D("lg-err").textContent = err.message; }
 });
 
@@ -46,6 +60,41 @@ D("logout").addEventListener("click", async () => {
   localStorage.removeItem("oacv_csrf");
   showLogin();
 });
+
+const mmss = s => { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+
+/* ---- Radio en direct : on affiche le même morceau que le site public ---- */
+async function pollLive(){
+  let j = null;
+  try {
+    const r = await fetch("/api/radio/now", { cache: "no-store" });
+    if (r.ok){ const d = await r.json(); if (d && d.live) j = d; }
+  } catch(e){}
+  if (j){
+    live = j;
+    liveAt = Date.now();
+    D("live-art").src = j.thumb;
+    D("live-title").textContent = j.title || j.videoId;
+    D("live-author").textContent = j.author || "Playlist OACV";
+    D("live-next").textContent = j.next ? ("Ensuite : " + (j.next.title || j.next.videoId) + (j.next.author ? " — " + j.next.author : "")) : "";
+    D("live-state").textContent = j.paused
+      ? "Antenne interrompue — le morceau est gelé."
+      : "En cours sur radio-oacv — c'est ce que toute l'antenne entend.";
+  } else {
+    D("live-state").textContent = "Antenne indisponible : le site public tourne sur sa propre rotation.";
+  }
+  paintLive();
+}
+
+/* La barre avance toute seule entre deux appels, sinon elle clignoterait
+   toutes les 3 secondes. */
+function paintLive(){
+  if (!live) return;
+  const el = live.paused ? live.elapsed : live.elapsed + Math.floor((Date.now() - liveAt) / 1000);
+  const cur = Math.min(el, live.duration);
+  D("live-bar").style.width = (live.duration ? (cur / live.duration) * 100 : 0) + "%";
+  D("live-time").textContent = mmss(cur) + " / " + mmss(live.duration);
+}
 
 async function refresh(){
   let st;
@@ -120,8 +169,7 @@ D("q").addEventListener("input", () => { clearTimeout(libTimer); libTimer = setT
     const me = await fetch("/api/me", { credentials: "same-origin" }).then(r => r.json());
     if (me.user){
       csrf = me.csrf || csrf; user = me.user;
-      showDash(); refresh(); loadLib();
-      setInterval(refresh, 3000);
+      startDash();
       return;
     }
   } catch(e){}

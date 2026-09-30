@@ -14,7 +14,8 @@
     "add-account": "node tools/add-account.js",
     "password": "node tools/change-password.js",
     "export": "node tools/export-site.js",
-    "check": "node --check server/server.js"
+    "check": "node --check server/server.js",
+    "test": "node tools/test-radio.mjs"
   },
   "dependencies": {}
 }

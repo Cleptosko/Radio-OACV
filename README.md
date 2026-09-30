@@ -22,7 +22,8 @@ et un espace d'administration privé pour deux personnes.
 | Élément | État |
 |---|---|
 | Site public (design OACV, pochette, couleurs dynamiques, visualiseur) | ✅ en place (`index.html`, `style.css`, `ui.js`, `app.js`) — **affichage des paroles retiré** (inutile pour la radio) |
-| Site public **hébergé 24h/24, 7j/7** | ✅ **en ligne** sur firtoks.github.io/radio-oacv (§7) |
+| **Antenne partagée** (tout le monde entend le même morceau, au même endroit) | ✅ en place — `server/radio.js`, `GET /api/radio/now` |
+| Site public **hébergé 24h/24, 7j/7** | ✅ **en ligne** sur firtoks.github.io/radio-oacv (§8) |
 | Serveur (site + API privée) | ✅ en place — `server/` |
 | Connexion privée `/admin` pour deux comptes | ✅ en place |
 | Enregistrement d'annonces au micro | ✅ en place |
@@ -236,7 +237,44 @@ serveur. Aucun secret ne doit apparaître dans le code ou dans le site public.
 
 ---
 
-## 6. Structure
+## 6. L’antenne partagée : pourquoi on arrive au milieu du morceau
+
+Une radio, ce n’est pas une vidéo. Si chaque visiteur tirait sa propre rotation,
+chacun entendrait un titre différent : ce serait une boîte à musique, pas une radio.
+L’antenne est donc tenue par le **serveur**.
+
+Le serveur garde un état minuscule — une graine, une file de titres, l’instant de
+début du titre en cours — et le publie :
+
+```text
+GET  /api/radio/now              ce qui passe, et à quel point
+POST /api/radio/now  { videoId } ce titre est illisible, passe au suivant
+```
+
+Le site appelle ce point toutes les 3 secondes et s’aligne dessus :
+
+* à l’arrivée sur la page, il se place **à la seconde en cours** du morceau, pas à 0:00 ;
+* le **bouton pause ne reprend pas la position locale** : il revient au direct, c’est-à-dire
+  là où l’antenne en est maintenant ;
+* si le lecteur dérive (onglet en veille, téléphone qui se met en sommeil), il se recale ;
+* YouTube refusant certains titres, un auditeur peut le signaler : toute l’antenne passe au suivant.
+
+Le studio garde la main : il impose un titre, en programme le suivant, ou interrompt
+l’antenne — auquel cas le morceau est **gelé** et reprend exactement où il s’était arrêté.
+La carte « Radio en direct » de `/studio` montre ce que toute l’antenne entend.
+
+Sans serveur (site ouvert en local sans `npm start`), le navigateur garde son antenne
+autonome d’avant : la radio fonctionne dans les deux cas.
+
+Le calcul de l’antenne est testé tout seul :
+
+```bash
+npm test
+```
+
+---
+
+## 7. Structure
 
 ```text
 radio/
@@ -252,12 +290,15 @@ radio/
 │  ├─ schedule.js      # les 5 modes de programmation
 │  ├─ zoned.js         # calculs de dates dans le fuseau de la radio
 │  ├─ library.js       # playlists complètes (Piped paginé + Invidious), activer/désactiver
+│  ├─ radio.js         # l’antenne partagée : rotation, titre en cours, position
 │  ├─ announcements.js # réception, stockage et suppression des annonces
 │  ├─ http.js          # multipart, cookies, fichiers avec Range, en-têtes
 ├─ studio/             # le tableau de bord de pilotage (/studio)
 ├─ api/                # fonctions Vercel : le site et le studio sans serveur
 │  ├─ _lib.js          # couche commune : auth, CSRF, stockage Upstash
+│  ├─ _titles.js       # banque de titres, en cache Redis, partagée par l’antenne et le studio
 │  ├─ login.js, logout.js, me.js
+│  ├─ radio/now.js     # l’antenne partagée : GET ce qui passe, POST titre illisible
 │  ├─ studio/          # directives, état, play-now, next, interrupt, resume, clear
 │  └─ library/music.js # recherche de titres pour choisir un morceau
 ├─ vercel.json         # routage et en-têtes Vercel
@@ -266,7 +307,8 @@ radio/
 │  ├─ add-account.js  # ajoute ou remplace le compte du collègue
 │  ├─ change-password.js # changer un mot de passe sans toucher au reste
 │  ├─ export-site.js  # copie le site public vers ../radio-site (dépôt Netlify)
-│  └─ prompt.js       # saisie clavier partagée par les deux outils
+│  ├─ prompt.js       # saisie clavier partagée par les deux outils
+│  └─ test-radio.mjs  # test de l’antenne partagée (npm test)
 ├─ deploy/            # configuration d'hébergement
 │  ├─ netlify.toml       # cache, en-têtes, redirections (hébergeur Netlify)
 │  ├─ install-vps.sh     # installation complète sur un VPS Linux
@@ -281,7 +323,7 @@ radio/
 
 ---
 
-## 7. Site public en ligne
+## 8. Site public en ligne
 
 ### 🌐 **https://firtoks.github.io/radio-oacv/**
 
@@ -314,7 +356,7 @@ Rien d'autre — **jamais** de `.env`, de `data/`, ni de code serveur.
 
 L'administration (annonces, programmation, banque) et le serveur Node : ils doivent
 tourner en permanence pour que les annonces programmées passent, et aucun hébergeur
-gratuit ne le fait de façon fiable. Voir §8 pour un vrai VPS.
+gratuit ne le fait de façon fiable. Voir §9 pour un vrai VPS.
 
 ### Brancher Netlify (facultatif)
 
@@ -357,7 +399,7 @@ Règles à respecter :
 
 ---
 
-## 8. Fonctionnement 24h/24
+## 9. Fonctionnement 24h/24
 
 Le site public n'est qu'une fenêtre : la diffusion tourne dès que le serveur tourne.
 Avec `Lancer-Radio-OACV.bat`, le serveur vit dans sa propre fenêtre (réduite) ; sur un
@@ -395,7 +437,7 @@ docker compose up -d --build     # .env récupéré automatiquement, data/ conse
 
 ---
 
-## 9. Bot Discord (phase 2)
+## 10. Bot Discord (phase 2)
 
 Le bot ne fait que **consommer le flux** : dès que la phase 2 est en place, le serveur
 expose `STREAM_MOUNT` (par défaut `/stream`) en continu, et le bot diffuse cette adresse
@@ -417,7 +459,7 @@ dans le flux : ni le bot ni le site n'ont besoin d'être ouverts pour qu'elles p
 
 ---
 
-## 10. Ce qu'il reste à faire (phase 2)
+## 11. Ce qu'il reste à faire (phase 2)
 
 1. installer **`ffmpeg`** et **`yt-dlp`** sur la machine qui fait tourner la radio ;
 2. écrire le moteur d'antenne serveur : rotation aléatoire sur toute la bibliothèque,
@@ -430,7 +472,7 @@ dans le flux : ni le bot ni le site n'ont besoin d'être ouverts pour qu'elles p
 
 ---
 
-## 11. Mettre le studio en ligne sur Vercel
+## 12. Mettre le studio en ligne sur Vercel
 
 GitHub Pages ne sert que des fichiers : aucune connexion, aucun mot de passe,
 aucun pilotage de l'antenne. Vercel exécute du Node.js, donc le studio y
@@ -487,7 +529,7 @@ votre machine avec le fichier .env : les deux modes partagent le même code.
 
 ---
 
-## 12. En cas de problème
+## 13. En cas de problème
 
 | Symptôme | Solution |
 |---|---|

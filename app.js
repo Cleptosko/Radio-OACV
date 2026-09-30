@@ -50,7 +50,6 @@ const INVIDIOUS_INSTANCES = [
 
 const $ = id => document.getElementById(id);
 const ri  = (a,b) => a + Math.floor(Math.random() * (b - a + 1));
-const fmt = t => { t = Math.max(0, Math.floor(t||0)); return Math.floor(t/60) + ':' + String(t%60).padStart(2,'0'); };
 const clamp01 = v => Math.min(1, Math.max(0, v));
 const smooth = k => k*k*(3-2*k);
 const decodeHTML = s => { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; };
@@ -189,6 +188,7 @@ const S = {
   recentFail: new Map(),
   verdicts: new Map(),     // verdicts YouTube persistants : 'ok' | 'ko' (voir verdictOf)
   currentSeg: null,
+  cueAt: 0,               // position de calage : ou le direct en etait quand on l a rejoint
   lastPlayed: loadRecent(),
   startWatch: { elapsed: 0, retries: 0, id: null },
   ending: false,
@@ -583,7 +583,7 @@ function releasePlayer(p){
 }
 
 function createChannel(seg){
-  const ch = { id: ++S.chSeq, seg, type: null, player: null, audio: null, startedAt: 0, failed: false };
+  const ch = { id: ++S.chSeq, seg, type: null, player: null, audio: null, startedAt: 0, born: Date.now(), failed: false };
   if (seg.kind === 'ad' && seg.ad.type === 'yt' || seg.kind === 'music'){
     ch.type = 'yt';
     const vid = seg.kind === 'music' ? seg.video.id : seg.ad.video.id;
@@ -720,7 +720,10 @@ function playNext(){
 
   /* Titre non vérifié alors qu'on sait déjà tenir l'antenne : on prend un
      titre dont on est sûr qu'il passe, plutôt que de le découvrir en direct. */
-  if (seg.kind === 'music' && verdictOf(seg.video.id) !== 'ok'){
+  /* hors direct, on ne prend pas un titre dont on sait qu il passe : on
+     prend un titre sur. En direct, par contre, on garde celui du serveur —
+     sinon l auditeur decrocherait de l antenne — et on signale l echec. */
+  if (!Radio.on && seg.kind === 'music' && verdictOf(seg.video.id) !== 'ok'){
     const v = drawVettedMusic();
     if (v) seg = { kind: 'music', video: v };
   }
@@ -882,6 +885,12 @@ function onYtState(p, st){
   if (st === 1 && isMine && S.state === 'starting'){
     S.state = 'playing';
     setStatus('En direct');
+    /* le direct : on arrive au milieu du morceau, pas a zero */
+    if (S.cueAt > 0){
+      const at = S.cueAt; S.cueAt = 0;
+      try { p.yt.seekTo(at, true); } catch(e){}
+      console.log('[OACV] calage sur le direct a ' + Math.round(at) + 's');
+    }
   }
 }
 
@@ -894,6 +903,7 @@ function onYtError(p, code){
   if (vid){
     S.recentFail.set(vid, Date.now());
     setVerdict(vid, false);            // YouTube refuse ce titre : il ne repassera plus
+    Radio.report(vid);                 // et on fait passer toute l antenne au suivant
   }
   const i = planner.q.findIndex(s => segVideoId(s) === vid && s.kind === 'music');
   if (i >= 0){
@@ -988,18 +998,6 @@ function refreshQueueUI(){
 }
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-function updateProgress(cur, dur){
-  const bar = $('bar');
-  if (dur > 0){
-    bar.style.width = (clamp01(cur / dur) * 100) + '%';
-    $('t-cur').textContent = fmt(cur);
-    $('t-dur').textContent = fmt(dur);
-  } else {
-    bar.style.width = '0%';
-    $('t-cur').textContent = '0:00';
-    $('t-dur').textContent = '0:00';
-  }
-}
 
 function setPlayIcon(playing){
   $('icon-play').classList.toggle('hidden', playing);
@@ -1049,7 +1047,6 @@ function tick(dt){
       return;
     }
     const dur = a.duration || 0, cur = a.currentTime;
-    updateProgress(cur, dur);
     const rem = dur ? dur - cur : Infinity;
     if (dur > 0 && rem <= XF_AD_AD + 0.3 && rem > 0.25 && !S.ending){
       const nxt = planner.q[0];
@@ -1110,7 +1107,6 @@ function tick(dt){
     }
   }
 
-  updateProgress(cur, dur);
 
   if (S.state === 'playing' && dur > 0 && !S.ending){
     const rem = dur - cur;
@@ -1151,20 +1147,23 @@ function pauseAllChannels(){
   }
 }
 
+/* Reprise locale : on repart du lecteur tel qu il est. Utilisee quand le
+   site tourne sans serveur, et comme premiere moitie du retour au direct. */
+function localResume(){
+  S.state = S.resumeState;
+  for (const ch of [S.active, S.fading]){
+    if (!ch) continue;
+    if (ch.type === 'yt') try { ch.player.yt.playVideo(); } catch(e){}
+    else if (ch.audio) try { ch.audio.play(); } catch(e){}
+  }
+  if (!S.active) playNext();
+  setStatus('En direct');
+  setLive(true); setPlayIcon(true); setEq(S.state);
+}
+
 function togglePlay(){
   if (S.state === 'paused'){
-    const resume = () => {
-      S.state = S.resumeState;
-      for (const ch of [S.active, S.fading]){
-        if (!ch) continue;
-        if (ch.type === 'yt') try { ch.player.yt.playVideo(); } catch(e){}
-        else if (ch.audio) try { ch.audio.play(); } catch(e){}
-      }
-      if (!S.active) playNext();
-      setStatus('En direct');
-      setLive(true); setPlayIcon(true); setEq(S.state);
-    };
-    resume();
+    Radio.resume();                 // toujours vers le direct, jamais la position locale
   } else if (['playing','local','starting'].includes(S.state)){
     S.resumeState = S.state === 'starting' ? 'playing' : S.state;
     S.state = 'paused';
@@ -1188,6 +1187,175 @@ $('vol').addEventListener('input', e => {
   if (ch && !S.tweens.some(t => t.target === ch)) setVol(ch, S.master);
 });
 $('btn-retry').addEventListener('click', () => location.reload());
+
+/* ---------- Radio : le direct vient du serveur ----------
+   Une radio, ce n'est pas une vidéo : on n'arrive pas à 0:00, on
+   tombe au milieu du morceau qui passe. Le serveur détient donc la
+   rotation et l'instant de départ du titre en cours ; le navigateur se
+   cale dessus, puis se recale s'il dérive (onglet en veille, mise en
+   veille du téléphone, volume coupé par le système…).
+
+   Sans serveur — ou si l'appel échoue — le site garde son antenne
+   autonome d'avant, telle quelle : rien n'est cassé au pire. */
+const Radio = {
+  on: false,        // le serveur tient-t-il l'antenne ?
+  now: null,        // dernier état reçu
+  cue: 0,           // position où le direct en était quand on l'a rejoint
+  timer: null,
+  asking: false,
+  busy: false,
+  reported: new Set(),
+
+  async fetchNow(){
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 6000);
+    try {
+      const r = await fetch('/api/radio/now', { cache: 'no-store', signal: ctl.signal });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return (j && j.live) ? j : null;
+    } catch(e){
+      return null;                        // pas de serveur : radio autonome
+    } finally {
+      clearTimeout(t);
+    }
+  },
+
+  /* au démarrage : on demande où en est l'antenne avant d'armer la lecture */
+  async start(){
+    const j = await this.fetchNow();
+    if (!j) return false;
+    this.on = true;
+    this.adopt(j);
+    this.timer = setInterval(() => this.poll(), 3000);
+    console.log('[OACV] direct branché :', j.title || j.videoId, 'à', j.elapsed + 's');
+    return true;
+  },
+
+  async poll(){
+    if (this.asking) return;
+    this.asking = true;
+    try {
+      const j = await this.fetchNow();
+      if (j){ this.on = true; this.adopt(j); }
+    } finally {
+      this.asking = false;
+    }
+  },
+
+  /* le serveur a parlé : on se cale dessus */
+  adopt(j){
+    const change = !this.now || this.now.videoId !== j.videoId;
+    this.now = j;
+    this.cue = j.elapsed;
+    this.syncQueue(j);
+
+    if (S.state === 'paused') return;     // le retour au direct tranchera
+    const cur = S.currentSeg ? segVideoId(S.currentSeg) : null;
+
+    if (cur === j.videoId){ this.realign(j); return; }
+    if (!change) return;
+
+    /* on vient d'enchaîner sur le titre suivant : le serveur est
+       simplement en retard de quelques secondes, on ne recule pas */
+    if (cur && S.active && Date.now() - (S.active.born || 0) < 8000) return;
+
+    if (S.state === 'idle' || !S.musicPool.length) return;   // on partira au bon endroit
+    this.cut(j);
+  },
+
+  /* retour au direct : on ne reprend pas où l'auditeur s'était arrêté,
+     on rejoint l'antène là où elle en est */
+  async resume(){
+    if (S.state !== 'paused' || this.busy) return;
+    if (!this.on) return localResume();
+    this.busy = true;
+    try {
+      const j = await this.fetchNow();
+      if (!j){ this.on = false; return localResume(); }
+      this.now = j;
+      this.syncQueue(j);
+      localResume();
+      if (j.videoId === (S.currentSeg ? segVideoId(S.currentSeg) : null)) this.realign(j, true);
+      else this.cut(j);
+    } finally {
+      this.busy = false;
+    }
+  },
+
+  /* le serveur a changé de morceau : on bascule */
+  cut(j){
+    S.cueAt = j.elapsed;
+    S.ending = false;
+    S.state = 'skipping';
+    setStatus('Bascule sur le direct…');
+    const cur = S.active;
+    if (cur) fadeOutChannel(cur, SKIP_FADE);
+    S.active = null;
+    S.lastPlayed.unshift(j.videoId);
+    if (S.lastPlayed.length > RECENT_MAX) S.lastPlayed.pop();
+    saveRecent();
+    startChannel(createChannel({ kind: 'music', video: this.videoOf(j) }));
+  },
+
+  /* on se replace dans le morceau en cours quand on a dérivé */
+  realign(j, force){
+    if (S.cueAt > 0) return;              // le calage de départ s'en charge
+    const ch = S.active;
+    if (!ch || ch.type !== 'yt' || !ch.player || !ch.player.ready) return;
+    let cur = 0;
+    try { cur = ch.player.yt.getCurrentTime() || 0; } catch(e){ return; }
+    const attendu = Math.max(0, j.elapsed);
+    if (!force && Math.abs(cur - attendu) <= 2.5) return;
+    try { ch.player.yt.seekTo(attendu, true); } catch(e){}
+    if (force) console.log('[OACV] retour au direct à ' + Math.round(attendu) + 's');
+  },
+
+  /* la file suit le serveur : titre en cours puis titre d'après,
+     le reste de la file reste tiré au hasard pour précharger */
+  syncQueue(j){
+    const cur = S.currentSeg ? segVideoId(S.currentSeg) : null;
+    const tete = (cur === j.videoId) ? [j.next] : [j, j.next];
+    const vus = new Set(tete.filter(Boolean).map(t => t.videoId));
+    planner.q = planner.q.filter(s => !vus.has(segVideoId(s)));
+    for (let i = tete.length - 1; i >= 0; i--){
+      if (tete[i]) planner.q.unshift({ kind: 'music', video: this.videoOf(tete[i]) });
+    }
+    planner.refill();
+    ensurePreloads();
+    refreshQueueUI();
+  },
+
+  /* un titre peut venir du serveur sans être dans la playlist du client */
+  videoOf(t){
+    let v = S.musicPool.find(x => x.id === t.videoId);
+    if (!v){
+      v = { id: t.videoId, title: '', author: '', thumb: '', duration: t.duration || 0 };
+      S.musicPool.push(v);
+    }
+    if (!v.title) v.title = t.title || '';
+    if (!v.author) v.author = t.author || '';
+    if (!v.thumb) v.thumb = t.thumb || ('https://i.ytimg.com/vi/' + t.videoId + '/hqdefault.jpg');
+    if (t.duration && !v.duration) v.duration = t.duration;
+    return v;
+  },
+
+  /* YouTube refuse certains titres : on le signale pour que toute
+     l'antenne passe au suivant au lieu de rester bloquée dessus */
+  report(videoId){
+    if (!this.on || this.reported.has(videoId)) return;
+    this.reported.add(videoId);
+    try {
+      fetch('/api/radio/now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch(e){}
+  },
+};
+
 
 /* ---------- Studio : pilotage temps réel ----------
    Si un serveur Radio OACV répond, le lecteur suit ses directives :
@@ -1316,6 +1484,7 @@ function waitForApi(){
     return;
   }
   planner.init();
+  await Radio.start();       // si le serveur tient l antenne, on s y cale
   const warm = setInterval(() => {
     if (S.players.some(p => p.ready)){
       ensurePreloads();

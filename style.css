@@ -3,7 +3,7 @@
    ------------------------------------------------------------
    Couche purement visuelle. Le moteur audio (app.js) n'est
    jamais piloté depuis ce fichier : on ne fait qu'habiller
-   les éléments qu'il expose (#progress, #bar, #art, #eq…).
+   les éléments qu'il expose (#art, #eq…).
 
    La palette est injectée par ui.js sous forme de variables
    (--c1/--c2/--c3 = fonds, --c-a1/--c-a2 = accents). ui.js les
@@ -560,59 +560,6 @@ body[data-hasart="1"] .cover-idle{ display:none; }
    8. TRANSPORT
    ============================================================ */
 .transport{ width:100%; max-width:560px; display:flex; flex-direction:column; gap:16px; }
-.bar-row{ display:flex; align-items:center; gap:12px; }
-.t{ font-size:11.5px; color:var(--ink-faint); flex-shrink:0; }
-
-/* ------------------------------------------------------------
-   BARRE DE PROGRESSION — INDICATEUR PUR, AUCUN SEEK POSSIBLE
-   pointer-events:none → le clic/toucher/drag ne l'atteint jamais,
-   le moteur ne reçoit donc plus aucun événement sur #progress.
-   ------------------------------------------------------------ */
-.progress{
-  position:relative; flex:1; height:7px; border-radius:99px;
-  background:rgba(255,255,255,.075);
-  box-shadow:inset 0 1px 0 rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.045);
-  pointer-events:none;            /* non cliquable */
-  user-select:none;
-  cursor:default;
-  touch-action:pan-y;
-  overflow:visible;
-}
-.progress-track{ position:absolute; inset:0; border-radius:99px; overflow:hidden; }
-.progress-tick{
-  position:absolute; top:50%; width:1px; height:4px; transform:translateY(-50%);
-  background:rgba(255,255,255,.16);
-}
-.progress-tick:nth-child(1){ left:25%; }
-.progress-tick:nth-child(2){ left:50%; }
-.progress-tick:nth-child(3){ left:75%; }
-
-.progress-bar{
-  position:absolute; left:0; top:0; height:100%; width:0%;
-  border-radius:99px;
-  background:linear-gradient(90deg, color-mix(in srgb, var(--c-a1) 70%, #fff 12%), var(--c-a2));
-  box-shadow:0 0 16px color-mix(in srgb, var(--c-a1) 60%, transparent);
-  transition:width .26s linear;
-}
-.progress-head{
-  position:absolute; right:-5px; top:50%;
-  width:13px; height:13px; border-radius:50%;
-  transform:translateY(-50%);
-  background:#fff;
-  box-shadow:0 0 16px color-mix(in srgb, var(--c-a1) 85%, transparent), 0 0 0 3px color-mix(in srgb, var(--c-a1) 22%, transparent);
-  opacity:0;
-}
-body[data-playing="1"] .progress-head{ opacity:1; }
-.progress-sheen{
-  position:absolute; inset:0; border-radius:99px; overflow:hidden; pointer-events:none;
-  background:linear-gradient(100deg, transparent 20%, rgba(255,255,255,.16) 50%, transparent 80%);
-  background-size:240% 100%;
-  background-position:140% 0;
-  opacity:.5;
-}
-body[data-playing="1"] .progress-sheen{ animation:sheen 3.4s linear infinite; }
-@keyframes sheen{ from{ background-position:140% 0; } to{ background-position:-140% 0; } }
-
 .controls{ display:flex; align-items:center; justify-content:center; gap:clamp(14px,3vw,24px); }
 
 .btn{
@@ -866,6 +813,6 @@ body.auth-open{ overflow:hidden; }
 
 @media (prefers-reduced-motion: reduce){
   .bg-aurora i, .blob, .beam, .cover, .cover-ring, .cover-vinyl, .dust i,
-  .onair-ring, .btn-halo, .progress-sheen{ animation:none !important; }
+  .onair-ring, .btn-halo{ animation:none !important; }
   .auth-overlay, .auth-card{ animation:none; }
 }

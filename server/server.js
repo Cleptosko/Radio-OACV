@@ -19,6 +19,7 @@ import {
   securityHeaders, sameOrigin, clientIp,
 } from './http.js';
 import { Library } from './library.js';
+import { syncProgram, skipTrack, emptyProgram } from './radio.js';
 import { Announcements, cleanTitle } from './announcements.js';
 import * as sched from './schedule.js';
 import { formatInZone } from './zoned.js';
@@ -30,12 +31,14 @@ const storeSchedules = new JsonStore(path.join(dataDir, 'schedules.json'), { ite
 const storeQueue = new JsonStore(path.join(dataDir, 'queue.json'), { items: [] });
 const storeStudio = new JsonStore(path.join(dataDir, 'studio.json'), { playNow: null, playNext: null, interrupt: null });
 const storeLibrary = new JsonStore(path.join(dataDir, 'library.json'), {});
+const storeRadio = new JsonStore(path.join(dataDir, 'radio.json'), emptyProgram());
 
 await storeAnnouncements.load();
 await storeSchedules.load();
 await storeQueue.load();
 await storeStudio.load();
 await storeLibrary.load();
+await storeRadio.load();
 
 const auth = new Auth();
 const announcements = new Announcements(storeAnnouncements, {
@@ -211,6 +214,10 @@ function guard(req, res, method, pathname){
   if (!MUTATING.has(method)) return;
   if (!sameOrigin(req)) fail(403, 'origine non autorisée');
   if (pathname === '/api/login') return;            // protégé par le limiteur de tentatives
+  /* Signalement de titre illisible : vient d'un auditeur anonyme, donc
+     pas de jeton — mais la même origine reste exigée, et skipTrack()
+     n'accepte que le titre en cours. */
+  if (pathname === '/api/radio/now') return;
   auth.checkCsrf(req);
 }
 
@@ -250,6 +257,49 @@ function studioState(){
 }
 
 route('GET', '/api/studio/directives', (req, res) => sendJson(res, 200, studioDirectives()));
+
+/* ============================================================
+   Antenne partagée — « ce qui passe en ce moment »
+   C'est cette route qui fait la radio : le serveur détient la
+   rotation, l'heure de début du titre en cours et sa durée. Le
+   navigateur se cale dessus, donc tous les auditeurs entendent la
+   même chose, et celui qui ouvre la page arrive au milieu du
+   morceau plutôt qu'à zéro.
+
+     GET  /api/radio/now              ce qui passe, et à quel point
+     POST /api/radio/now  { videoId } ce titre est illisible, passe au suivant
+   ============================================================ */
+route('GET', '/api/radio/now', async (req, res) => {
+  const pool = library.list('music');
+  if (!pool.length) return sendJson(res, 200, { live: false });
+  const st = storeRadio.data;
+  const before = sigRadio(st);
+  const dir = studioDirectives();
+  const nowPlaying = syncProgram(st, pool, dir, Date.now(), !!(dir.interrupt && dir.interrupt.active));
+  if (sigRadio(st) !== before) await storeRadio.save();
+  if (!nowPlaying) return sendJson(res, 200, { live: false });
+  sendJson(res, 200, nowPlaying);
+});
+
+/* Un titre que YouTube refuse est signalé par les auditeurs : on le
+   saute pour tout le monde plutôt que de rester muet dessus. Sans
+   session, c'est un signalement de panne — skipTrack() n'accepte que
+   le titre en cours, donc la surface de ce point public reste nulle. */
+route('POST', '/api/radio/now', async (req, res) => {
+  const body = await readJson(req, 2 * 1024);
+  const vid = String(body.videoId || '').trim();
+  if (!/^[A-Za-z0-9_-]{11}$/.test(vid)) return fail(400, 'identifiant YouTube invalide');
+  const skipped = skipTrack(storeRadio.data, library.list('music'), vid, Date.now());
+  if (skipped){
+    await storeRadio.save();
+    console.log('[radio] titre sauté (illisible pour un auditeur) : ' + vid);
+  }
+  sendJson(res, 200, { ok: true, skipped });
+});
+
+/* Ce qui mérite d'être écrit : un changement de titre, un gel, une
+   directive du studio. Juste consulter ne coûte rien. */
+const sigRadio = st => [st.i, st.startedAt, st.pausedAt, st.override && st.override.videoId].join('|');
 
 route('GET', '/api/studio/state', (req, res) => {
   auth.require(req);
