@@ -97,7 +97,7 @@ function draw(st){
 
 /* On ne garde en mémoire qu'une petite fenêtre : 20 titres déjà diffusés
    (pour ne pas les repasser tout de suite) et 24 à venir. Sur une banque
-   de plusieurs centaines de titres, inutile d'en Promener 340 dans le
+   de plusieurs centaines de titres, inutile d'en promener 340 dans le
    fichier d'état. */
 function fill(st, playlist){
   const bas = Math.max(0, st.i - Q_PLAYED);
@@ -170,7 +170,7 @@ export function syncProgram(st, playlist, studio, now = Date.now(), paused = fal
 
   /* Fin d'interruption : le morceau repart d'exactement où il s'était
      arrêté — comme le lecteur de l'auditeur, qui était en pause sur
-     la même image. Sans ce recalage, lant'senne sauterait tous les
+     la même image. Sans ce recalage, l'antenne sauterait tous les
      titres passés pendant l'interruption. */
   if (!paused && st.pausedAt){
     const ecart = st.pausedAt - (st.override ? st.override.startedAt : st.startedAt);
@@ -258,13 +258,13 @@ function describe(st, playlist, v, at, paused){
   };
 }
 
-/* ---------- état vierge ---------- */
+/* ---------- titre illisible ---------- */
 export function skipTrack(st, playlist, videoId, now = Date.now()){
   /* YouTube refuse certains titres (erreur 150). Quand un auditeur
-     s en apercoit, il le signale et toute l antenne passe au suivant :
-     sans cela la station resterait bloquee sur un titre muet.
-     On ne saute que le titre en cours, jamais un titre impose par le
-     studio, et jamais un titre qui n est pas celui-la. */
+     s'en aperçoit, il le signale et toute l'antenne passe au suivant :
+     sans cela la station resterait bloquée sur un titre muet.
+     On ne saute que le titre en cours, jamais un titre imposé par le
+     studio, et jamais un titre qui n'est pas celui-là. */
   if (!st || !videoId || !Array.isArray(playlist) || !playlist.length) return false;
   if (st.override) return false;
   if (st.q[st.i] !== videoId) return false;
@@ -274,6 +274,7 @@ export function skipTrack(st, playlist, videoId, now = Date.now()){
   return true;
 }
 
+/* ---------- état vierge ---------- */
 export function emptyProgram(){
   return { v: 1, seed: 0, seededAt: 0, renewAt: 0, q: [], i: 0, draw: 0, startedAt: 0, pausedAt: 0, override: null, seen: {} };
 }

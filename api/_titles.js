@@ -1,10 +1,10 @@
 /* Banque de titres partagée entre la recherche du studio et l'antenne
-   publique. Une fonction Vercel est sans etat : on met donc la playlist
-   complete en cache dans Redis, et les deux appelants se resservent du
-   meme cache plutot que de retelecharger 338 titres a chaque appel.
+   publique. Une fonction Vercel est sans état : on met donc la playlist
+   complète en cache dans Redis, et les deux appelants se resservent du
+   même cache plutôt que de retélécharger 338 titres à chaque appel.
 
    L'antenne est publique : si la banque est injoignable, on rend la main
-   vite pour que le site bascule sur sa rotation autonome. */
+   tout de suite pour que le site bascule sur sa rotation autonome. */
 import { config } from "../server/config.js";
 import { fetchPlaylist } from "../server/library.js";
 import { redisGet, redisSet } from "./_lib.js";
@@ -12,8 +12,8 @@ import { redisGet, redisSet } from "./_lib.js";
 const KEY = "radio-oacv:lib:music";
 const TTL = Math.max(3600, config.libraryTtlHours * 3600);
 
-/* duree maximale de construction de la banque, pour ne pas laisser un
-   appelant attendre indefiniment un monde de Piped qui ne repond pas */
+/* durée maximale de construction de la banque, pour ne pas laisser un
+   appelant attendre indéfiniment un monde de Piped qui ne répond pas */
 const BUILD_MS = 25000;
 
 export async function musicTitles({ allowBuild = true } = {}){
@@ -22,7 +22,7 @@ export async function musicTitles({ allowBuild = true } = {}){
     try {
       const d = JSON.parse(raw);
       if (Array.isArray(d.items) && d.items.length) return d;
-    } catch { /* cache abime : on le refait */ }
+    } catch { /* cache abímé : on le refait */ }
   }
   if (!allowBuild) return null;
 
@@ -39,8 +39,8 @@ export async function musicTitles({ allowBuild = true } = {}){
   return data;
 }
 
-/* avec un garde-fou : une construction trop lente vaut mieux un echec que
-   de faire tomber la requete qui attend le direct */
+/* avec un garde-fou : une construction trop lente vaut mieux un échec que
+   de faire tomber la requête qui attend le direct */
 export function withDeadline(promise){
   return new Promise(resolve => {
     let done = false;

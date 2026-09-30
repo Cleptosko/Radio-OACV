@@ -282,9 +282,9 @@ route('GET', '/api/radio/now', async (req, res) => {
 });
 
 /* Un titre que YouTube refuse est signalé par les auditeurs : on le
-   saute pour tout le monde plutôt que de rester muet dessus. Sans
-   session, c'est un signalement de panne — skipTrack() n'accepte que
-   le titre en cours, donc la surface de ce point public reste nulle. */
+   saute pour tout le monde plutôt que de rester muet dessus.
+   skipTrack() n'accepte que le titre en cours, et jamais un titre
+   imposé par le studio. Ce point reste volontairement borné. */
 route('POST', '/api/radio/now', async (req, res) => {
   const body = await readJson(req, 2 * 1024);
   const vid = String(body.videoId || '').trim();

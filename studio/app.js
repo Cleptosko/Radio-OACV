@@ -24,7 +24,7 @@ async function api(path, opts){
 function showLogin(){ D("login-card").classList.remove("hidden"); D("dash").classList.add("hidden"); D("logout").classList.add("hidden"); }
 function showDash(){ D("login-card").classList.add("hidden"); D("dash").classList.remove("hidden"); D("logout").classList.remove("hidden"); }
 
-/* Ouvre le tableau de bord et branche les trois rafraichissements :
+/* Ouvre le tableau de bord et branche les trois rafraîchissements :
    l'état du studio, la banque de titres, et l'antenne en direct. */
 let ticking = null;
 function startDash(){

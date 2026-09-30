@@ -188,7 +188,7 @@ const S = {
   recentFail: new Map(),
   verdicts: new Map(),     // verdicts YouTube persistants : 'ok' | 'ko' (voir verdictOf)
   currentSeg: null,
-  cueAt: 0,               // position de calage : ou le direct en etait quand on l a rejoint
+  cueAt: 0,               // position de calage : où le direct en était quand on l'a rejoint
   lastPlayed: loadRecent(),
   startWatch: { elapsed: 0, retries: 0, id: null },
   ending: false,
@@ -530,7 +530,7 @@ function createPlayers(){
 const byDom = id => S.players.find(p => p.dom === id);
 const rotation = () => S.players.filter(p => !p.fetch);
 const anyIdle = () => rotation().find(p => !p.chId && !Vetter.busy(p));
-// lecteur déjà préparé avec cette vidéo : uniquement hors canaux actifs/phanomènes en fondu
+// lecteur déjà préparé avec cette vidéo : uniquement hors canaux actifs ou en fondu
 const holderOf = vid => rotation().find(p => p.videoId === vid && !p.chId);
 const isCued = p => p && p.ready && [1,3,5].includes(p.yt.getPlayerState());
 const ytPlaying = p => p && p.ready && p.yt.getPlayerState() === 1;
@@ -720,9 +720,9 @@ function playNext(){
 
   /* Titre non vérifié alors qu'on sait déjà tenir l'antenne : on prend un
      titre dont on est sûr qu'il passe, plutôt que de le découvrir en direct. */
-  /* hors direct, on ne prend pas un titre dont on sait qu il passe : on
-     prend un titre sur. En direct, par contre, on garde celui du serveur —
-     sinon l auditeur decrocherait de l antenne — et on signale l echec. */
+  /* hors direct, on ne prend pas un titre dont on sait qu'il passe : on
+     prend un titre sûr. En direct, par contre, on garde celui du serveur —
+     sinon l'auditeur décrocherait de l'antenne — et on signale l'échec. */
   if (!Radio.on && seg.kind === 'music' && verdictOf(seg.video.id) !== 'ok'){
     const v = drawVettedMusic();
     if (v) seg = { kind: 'music', video: v };
@@ -885,11 +885,11 @@ function onYtState(p, st){
   if (st === 1 && isMine && S.state === 'starting'){
     S.state = 'playing';
     setStatus('En direct');
-    /* le direct : on arrive au milieu du morceau, pas a zero */
+    /* le direct : on arrive au milieu du morceau, pas à zéro */
     if (S.cueAt > 0){
       const at = S.cueAt; S.cueAt = 0;
       try { p.yt.seekTo(at, true); } catch(e){}
-      console.log('[OACV] calage sur le direct a ' + Math.round(at) + 's');
+      console.log('[OACV] calage sur le direct à ' + Math.round(at) + ' s');
     }
   }
 }
@@ -903,7 +903,7 @@ function onYtError(p, code){
   if (vid){
     S.recentFail.set(vid, Date.now());
     setVerdict(vid, false);            // YouTube refuse ce titre : il ne repassera plus
-    Radio.report(vid);                 // et on fait passer toute l antenne au suivant
+    Radio.report(vid);                 // et on fait passer toute l'antenne au suivant
   }
   const i = planner.q.findIndex(s => segVideoId(s) === vid && s.kind === 'music');
   if (i >= 0){
@@ -1147,8 +1147,8 @@ function pauseAllChannels(){
   }
 }
 
-/* Reprise locale : on repart du lecteur tel qu il est. Utilisee quand le
-   site tourne sans serveur, et comme premiere moitie du retour au direct. */
+/* Reprise locale : on repart du lecteur tel qu'il est. Utilisée quand le
+   site tourne sans serveur, et comme première moitié du retour au direct. */
 function localResume(){
   S.state = S.resumeState;
   for (const ch of [S.active, S.fading]){
@@ -1198,13 +1198,13 @@ $('btn-retry').addEventListener('click', () => location.reload());
    Sans serveur — ou si l'appel échoue — le site garde son antenne
    autonome d'avant, telle quelle : rien n'est cassé au pire. */
 const Radio = {
-  on: false,        // le serveur tient-t-il l'antenne ?
+  on: false,        // le serveur tient-il l'antenne ?
   now: null,        // dernier état reçu
   cue: 0,           // position où le direct en était quand on l'a rejoint
   timer: null,
   asking: false,
   busy: false,
-  reported: new Set(),
+  reported: new Set(),   // titres déjà signalés comme illisibles
 
   async fetchNow(){
     const ctl = new AbortController();
@@ -1228,7 +1228,7 @@ const Radio = {
     this.on = true;
     this.adopt(j);
     this.timer = setInterval(() => this.poll(), 3000);
-    console.log('[OACV] direct branché :', j.title || j.videoId, 'à', j.elapsed + 's');
+    console.log('[OACV] direct branché :', j.title || j.videoId, 'à ' + j.elapsed + ' s');
     return true;
   },
 
@@ -1265,7 +1265,7 @@ const Radio = {
   },
 
   /* retour au direct : on ne reprend pas où l'auditeur s'était arrêté,
-     on rejoint l'antène là où elle en est */
+     on rejoint l'antenne là où elle en est */
   async resume(){
     if (S.state !== 'paused' || this.busy) return;
     if (!this.on) return localResume();
@@ -1308,7 +1308,7 @@ const Radio = {
     const attendu = Math.max(0, j.elapsed);
     if (!force && Math.abs(cur - attendu) <= 2.5) return;
     try { ch.player.yt.seekTo(attendu, true); } catch(e){}
-    if (force) console.log('[OACV] retour au direct à ' + Math.round(attendu) + 's');
+    if (force) console.log('[OACV] retour au direct à ' + Math.round(attendu) + ' s');
   },
 
   /* la file suit le serveur : titre en cours puis titre d'après,
@@ -1484,7 +1484,7 @@ function waitForApi(){
     return;
   }
   planner.init();
-  await Radio.start();       // si le serveur tient l antenne, on s y cale
+  await Radio.start();       // si le serveur tient l'antenne, on s'y cale
   const warm = setInterval(() => {
     if (S.players.some(p => p.ready)){
       ensurePreloads();
